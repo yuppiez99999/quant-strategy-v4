@@ -1,0 +1,235 @@
+# ============================================================
+# 量化策略系统 v5.6 - .gitignore
+# 用于 GitHub 上传，隐藏所有敏感文件
+# 保留：核心代码、配置模板、文档
+# 排除：API 密钥、真实持仓、个人交易数据
+# ============================================================
+
+# ── 1. 敏感凭证（绝对不能提交） ─────────────────────
+.env
+.env.local
+.env.*.local
+*.env.local
+config/*.private.json
+config/settings.yaml
+config/credentials.json
+config/api_keys.json
+config/secrets.yaml
+config/tokens.json
+config/account_info.json
+config/broker_config.json
+config/trading_account.*
+*.key
+*.pem
+*.p12
+*.pkcs12
+*.token
+*.credential
+
+# ── 2. 真实账户持仓与交易数据（最敏感） ──────────────
+config/positions.json
+data/positions.json
+config/price_history.jsonl
+config/price_*.jsonl
+data/pnl_*.json
+data/yizhao/
+data/*_pnl_*.json
+data/*_positions_*.json
+data/*_account_*.json
+data/*_balance_*.json
+data/yizhao_subset.jsonl
+data/yizhao/stats.json
+
+# ── 3. 报告与日志（避免泄漏交易细节） ───────────────
+reports/
+logs/
+ui/logs/
+signals/
+trade_logs/
+daily_report.txt
+*.log
+*.log.*
+
+# ── 4. Excel 持仓文件（包含实际仓位） ───────────────
+*.xlsx
+*.xls
+!data_extraction_*.xlsx
+!template_*.xlsx
+!example_*.xlsx
+!sample_*.xlsx
+
+# ── 5. 模型与大文件 ─────────────────────────────────
+models/*.pth
+models/*.pt
+models/*.bin
+models/*.onnx
+*.pth
+*.pt
+*.bin
+*.onnx
+*.pkl
+*.joblib
+data/*.parquet
+*.parquet
+*.h5
+*.hdf5
+
+# ── 6. 缓存与临时数据 ───────────────────────────────
+cache/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.cache
+*.tmp
+*.bak
+*.old
+*.swp
+*.swo
+*~
+临时数据/
+temp/
+.ECC/
+.local/
+.parquet-cache/
+*.parquet.tmp
+help_output.txt
+test_output.txt
+rebalance_output.txt
+
+# ── 7. 虚拟环境 ─────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.venv3/
+pythonenv3/
+
+# ── 8. 构建产物 ─────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.egg
+htmlcov/
+
+# ── 9. IDE / 编辑器 ─────────────────────────────────
+.vscode/
+.idea/
+.claude/
+.ipynb_checkpoints/
+verify_*.py
+update_*.py
+predict_2027.py
+diagnose_change_anomaly.py
+run_quant_rebalance.py
+start_quant_system.py
+verify_skills.py
+update_claude_version.py
+
+# ── 10. 测试和临时脚本 ────────────────────────────────
+test_*.py
+_quick_test.py
+_test_models.py
+*_test.py
+
+# ── 11. 批处理和脚本文件（可能含敏感路径） ─────────────
+*.bat
+*.ps1
+!README*.md
+
+# ── 12. 配置和报告文件（含策略信息） ──────────────────
+config/rebalance.yaml
+config/risk.yaml
+investment_report.json
+investment_report.md
+requirements.txt
+
+# ── 13. 系统文件 ────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── 11. 测试与覆盖率 ────────────────────────────────
+.pytest_cache/
+.coverage
+.tox/
+.nox/
+
+# ── 12. 嵌套 Git 仓库 ───────────────────────────────
+Shadowbroker/
+
+# ── 13. 归档数据 ────────────────────────────────────
+_archive*/
+_archive_*/
+_archive_20260620/
+每日报告归档/
+
+# ── 14. 投资计划与个人记录（配置级） ──────────────────
+config/stop_loss_*.yaml
+config/portfolio.yaml
+config/portfolio_v3.yaml
+config/watchlist.yaml
+2026年交易计划*.md
+!2026年交易计划_优化版_v2.md.example
+
+# ── 15. PDF 报告（可能含持仓信息） ───────────────────
+*.pdf
+!template_*.pdf
+!example_*.pdf
+
+# ── 16. 财务分析结果（个人敏感） ────────────────────
+玻璃基板投资标的分析.txt
+training_data.csv
+训练数据.csv
+
+# ── 17. Shadowbroker 子项目 ─────────────────────────
+Shadowbroker/
+Shadowbroker/**
+
+# ============================================================
+# 使用说明：
+# 1. .env / .env.local 包含 API Key，禁止上传
+# 2. data/positions.json 包含真实持仓，禁止上传
+# 3. config/portfolio.yaml 包含个人投资策略，禁止上传
+# 4. 复制 .env.example 模板供协作者使用
+# 5. 上传前运行：git status 确认无敏感文件
+# 6. 验证命令：git check-ignore -v .env
+# ============================================================
+
+# 真实持仓和交易计划（不公开）
+build_plan_100w.json
+build_plan_100w.md
+build_plan_100w.py
+rebalance_output.txt
+config/positions.json
+config/price_history.jsonl
+
+# 整个 models 目录（模型大文件）
+models/
+
+# 止损止盈规则（含真实标的配置）
+config/stop_loss_*.yaml
+config/rebalance_stop_loss_*.json
+
+# 每日报告归档
+每日报告归档/
+reports/
+
+# UI 日志
+ui/logs/
+
+# 交易日志
+trade_logs/
+
+# Shadowbroker 子项目
+Shadowbroker/
+
+# 超算 SSH 密钥
+*RsaKey*.txt
+*private*.txt
+*key*.txt
+
+# 注册表文件
+*.reg

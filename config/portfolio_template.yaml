@@ -1,0 +1,19 @@
+# 量化策略系统 - 投资组合配置模板
+# 复制此文件为 portfolio.yaml 并填入真实配置
+
+global:
+  capital:
+    total: 1000000
+    equity_portfolio: 700000
+    low_risk_portfolio: 300000
+  targets:
+    annual_return: 0.08
+    max_drawdown: 0.08
+
+categories:
+  core_etf:
+    weight: 0.20
+    risk_level: low
+  tech_growth:
+    weight: 0.30
+    risk_level: high
