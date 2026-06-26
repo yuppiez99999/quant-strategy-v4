@@ -25,14 +25,12 @@ pip install numpy pandas pyyaml streamlit openpyxl python-dotenv requests yfinan
 
 ### 1.3 配置 API Key
 
-创建 `.env` 文件：
+
 
 ```bash
 # DeepSeek V4 Pro API（LLM决策引擎）
-DEEPSEEK_API_KEY=47afd46f84e74f5d9b6faaa8cb1705f9.yb0Fk33H0QxVWWvr
-
 # Wind MCP API Key（金融数据主源）
-WIND_API_KEY=<your-wind-api-key>
+
 ```
 
 ---
