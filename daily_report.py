@@ -19,6 +19,8 @@ if sys.platform == 'win32':
 
 # 尝试加载 YiZhao 增强模块
 _ENHANCED_AVAILABLE = False
+_MULTI_FACTOR_OK = False
+_RISK_WARNING_ENHANCED = False
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from ai_analysis_enhanced import (
@@ -28,6 +30,20 @@ try:
     from event_driven_factor import get_factor_generator
     from yizhao_data_loader import get_yizhao_loader
     _ENHANCED_AVAILABLE = True
+except ImportError:
+    pass
+
+# 尝试加载多因子信号模块
+try:
+    from multi_factor_signal import get_signal_generator, MultiFactorSignal
+    _MULTI_FACTOR_OK = True
+except ImportError:
+    pass
+
+# 尝试加载增强风险预警模块
+try:
+    from risk_early_warning import get_risk_early_warning, RiskEarlyWarning
+    _RISK_WARNING_ENHANCED = True
 except ImportError:
     pass
 
@@ -133,6 +149,8 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
     ai_analyses = {}
     risk_report = None
     factor_report = None
+    multi_factor_report = None
+    enhanced_risk_report = None
     if enable_ai_analysis:
         if _ENHANCED_AVAILABLE:
             suggestion_engine = EnhancedSuggestionEngine()
@@ -150,6 +168,24 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
                 )
             except Exception:
                 pass
+            # 多因子信号 (模块5)
+            if _MULTI_FACTOR_OK:
+                try:
+                    multi_gen = get_signal_generator()
+                    multi_factor_report = multi_gen.compute_portfolio_signals(
+                        [a['code'] for a in assets if a['code'] != 'CASH']
+                    )
+                except Exception:
+                    pass
+            # 增强风险预警 (模块6)
+            if _RISK_WARNING_ENHANCED:
+                try:
+                    enhanced_risk = get_risk_early_warning()
+                    enhanced_risk_report = enhanced_risk.comprehensive_risk_assessment(
+                        [a['code'] for a in assets if a['code'] != 'CASH']
+                    )
+                except Exception:
+                    pass
         else:
             suggestion_engine = FallbackEngine()
 
@@ -550,6 +586,29 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
             factor_text = f"{code}: 综合={info['composite']:.3f} S={f_.get('sentiment', 0):.2f} E={f_.get('event_impact', 0):.2f} H={f_.get('text_heat', 0):.2f} I={f_.get('industry_corr', 0):.2f} P={f_.get('policy_bias', 0):.2f}"
             report_lines.append(f"    • {factor_text}")
 
+    # 多因子融合信号分析 (模块5)
+    if multi_factor_report:
+        report_lines.append("")
+        report_lines.append("## 🧬 多因子融合信号 (事件驱动 + 技术面)")
+        report_lines.append("-" * 80)
+        report_lines.append(f"  组合综合因子: {multi_factor_report['portfolio_composite']:.4f}")
+        report_lines.append(f"  主导信号: {multi_factor_report['dominant_signal']}")
+        report_lines.append(f"  信号分布: {multi_factor_report['signal_distribution']}")
+        report_lines.append("")
+        for code, info in multi_factor_report.get('code_signals', {}).items():
+            f_ = info.get('factors', {})
+            signal_name = info.get('signal', 'hold')
+            conf = info.get('confidence', 0)
+            ma = f_.get('dual_ma', 0)
+            macd = f_.get('macd', 0)
+            rsi = f_.get('rsi', 0)
+            sentiment = f_.get('sentiment', 0)
+            report_lines.append(
+                f"    • {code}: 综合={info['composite']:.3f} "
+                f"信号={signal_name} 置信度={conf:.1%} "
+                f"(MA={ma:+.2f} MACD={macd:+.2f} RSI={rsi:+.2f} 情绪={sentiment:+.2f})"
+            )
+
     # 风险预警
     if risk_report:
         report_lines.append("")
@@ -563,6 +622,27 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
             report_lines.append("  预警详情:")
             for w in risk_report['warnings']:
                 report_lines.append(f"    • ⚠️ {w['code']}: {w['high_risk_count']}个高风险事件")
+
+    # 增强风险预警 (模块6 - 行业联动 + 综合评估)
+    if enhanced_risk_report:
+        report_lines.append("")
+        report_lines.append("## 🚨 增强风险预警 (负面密度 + 行业联动)")
+        report_lines.append("-" * 80)
+        report_lines.append(f"  综合风险等级: {enhanced_risk_report['overall_level']}")
+        report_lines.append(f"  综合风险得分: {enhanced_risk_report['composite_score']:.3f}")
+        report_lines.append(f"  建议行动: {enhanced_risk_report['action_suggestion']}")
+        report_lines.append(f"  平均负面密度: {enhanced_risk_report['avg_negative_density']:.4f}")
+        report_lines.append(f"  高风险事件总数: {enhanced_risk_report['total_high_risk_events']}")
+        # 行业联动预警
+        industry_alerts = enhanced_risk_report.get('industry_alerts', {})
+        if industry_alerts.get('industry_alerts'):
+            report_lines.append(f"  行业联动预警 ({industry_alerts.get('alert_count', 0)}项):")
+            for alert in industry_alerts['industry_alerts']:
+                report_lines.append(
+                    f"    • [{alert['risk_level']}] {alert['industry']}: "
+                    f"涉及{alert['affected_count']}/{alert['total_count']}"
+                    f"只标的, 风险分={alert['risk_score']:.3f}"
+                )
 
     # 止损止盈实时监控
     logging.info(f"[报告生成] sl_alerts 类型: {type(sl_alerts)}, 长度: {len(sl_alerts) if sl_alerts else 0}")
@@ -628,7 +708,12 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
         report_lines.append("  数据源: wind_data_provider 未加载 (降级模式)")
 
     if _ENHANCED_AVAILABLE:
-        report_lines.append("  AI分析: 十五五规划政策 + 估值分析 + 舆情因子 + 风险预警")
+        modules = ["十五五规划政策 + 估值分析 + 舆情因子 + 风险预警"]
+        if _MULTI_FACTOR_OK:
+            modules.append("多因子融合信号")
+        if _RISK_WARNING_ENHANCED:
+            modules.append("增强风险预警(行业联动)")
+        report_lines.append(f"  AI分析: {' + '.join(modules)}")
     else:
         report_lines.append("  AI分析: 十五五规划政策 + 估值分析")
     if _SL_MONITOR_OK:

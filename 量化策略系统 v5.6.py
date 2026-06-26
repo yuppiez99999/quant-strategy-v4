@@ -33,6 +33,8 @@
   14. 十五五规划适配分析 (v5.1新增：持仓对标+政策对齐评分+权重调整)
   16. 期货期权扫描 (新增：期货市场+期权市场+套利机会)
   17. 统一监控模式 (新增：一键启动所有模块并行运行)
+ 18. AI Hedge Fund - 19位大师级AI分析师联合决策 (v5.6新增)
+ 19. ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)
 
 Excel数据源 (5个表格联动):
   - data_extraction_complete_rebalancing_plan.xlsx: 16只标的完整计划
@@ -71,7 +73,8 @@ Excel数据源 (5个表格联动):
   python "量化策略系统 v5.0.py" --kondratiev     # 康波周期+十五五交叠分析 (v5.1)
   python "量化策略系统 v5.0.py" --fifteen-five   # 十五五规划适配分析 (v5.1)
   python "量化策略系统 v5.0.py" --social-security # 社保基金ETF风格追踪 (v5.1)
-  python "量化策略系统 v5.0.py" --macro-analysis  # 宏观综合分析（一键运行三大分析）(v5.1)
+  python "量化策略系统 v5.0.py" --macro-analysis  # 宏观综合分析（一键运行三大）(v5.1)
+  python "量化策略系统 v5.0.py" --ml-signal       # ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)
 
 架构特点 (借鉴Vibe-Trading):
   - Connector-first: 统一数据源抽象，支持多连接器配置 (Wind/iFinD/LSEG/yfinance/tushare/新浪) ⭐
@@ -258,6 +261,19 @@ except ImportError as e:
     logger.warning(f"⚠️ 社保基金ETF追踪模块加载失败: {e}")
 
 # ============================================================
+# ML 模型预测模块 (v5.6 新增) - GradientBoosting + 特征选择
+# ============================================================
+try:
+    from utils.ml_predictor import MLModelPredictor, run_ml_signal_scan
+    ML_PREDICTOR_AVAILABLE = True
+    logger.info("✅ ML模型预测模块已加载")
+except ImportError as e:
+    MLModelPredictor = None
+    run_ml_signal_scan = None
+    ML_PREDICTOR_AVAILABLE = False
+    logger.warning(f"⚠️ ML模型预测模块加载失败: {e}")
+
+# ============================================================
 # LSEG MCP 连接器集成 (优先级3) - 已禁用
 # ============================================================
 # 如需启用 LSEG，请取消下面的注释并设置 LSEG_API_KEY 环境变量
@@ -310,6 +326,162 @@ def run_etf_flow_monitor(args):
     progress.complete(f"检测到 {len(signals)} 条信号")
     
     return monitor
+
+def run_ml_signal_mode(args):
+    """ML模型预测信号模式 - 基于训练好的模型生成涨跌信号"""
+    print("\n🤖 ML模型预测信号扫描")
+    print("=" * 70)
+    
+    if not ML_PREDICTOR_AVAILABLE:
+        print("\n❌ ML模型预测模块不可用")
+        return None
+    
+    progress = ProgressIndicator("ML信号扫描", 5)
+    
+    # 解析阈值参数
+    threshold = 0.55
+    if hasattr(args, 'threshold') and args.threshold:
+        threshold = args.threshold
+    
+    progress.update(1, "加载ML模型...")
+    model_dir = os.path.join(BASE_DIR, 'models')
+    data_dir = os.path.join(BASE_DIR, 'data', 'cache')
+    
+    progress.update(2, "加载K线数据...")
+    
+    progress.update(3, "构建特征并预测...")
+    result = run_ml_signal_scan(
+        data_dir=data_dir,
+        model_dir=model_dir,
+        threshold=threshold,
+    )
+    
+    if 'error' in result:
+        print(f"\n❌ 错误: {result['error']}")
+        return None
+    
+    progress.update(4, "生成信号报告...")
+    
+    model_info = result.get('model_info', {})
+    signals = result.get('signals', {})
+    scanned_count = result.get('scanned_count', 0)
+    
+    # 生成报告
+    report_lines = []
+    report_lines.append("# ML模型预测信号报告")
+    report_lines.append("")
+    report_lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    report_lines.append(f"**扫描标的数**: {scanned_count}")
+    report_lines.append("")
+    report_lines.append("## 模型信息")
+    report_lines.append("")
+    report_lines.append(f"- **模型**: {model_info.get('best_model', 'N/A')}")
+    report_lines.append(f"- **准确率**: {model_info.get('accuracy', 0):.2%}")
+    report_lines.append(f"- **F1分数**: {model_info.get('f1', 0):.4f}")
+    report_lines.append(f"- **AUC**: {model_info.get('auc', 0):.4f}")
+    report_lines.append(f"- **特征数**: {model_info.get('feature_count', 0)}")
+    report_lines.append(f"- **信号阈值**: {threshold:.2%}")
+    report_lines.append("")
+    report_lines.append("## 信号汇总")
+    report_lines.append("")
+    report_lines.append(f"- 🟢 **买入信号**: {len(signals.get('buy', []))} 只")
+    report_lines.append(f"- 🔴 **卖出信号**: {len(signals.get('sell', []))} 只")
+    report_lines.append(f"- 🟡 **持有观望**: {len(signals.get('hold', []))} 只")
+    report_lines.append("")
+    
+    # 买入信号详情
+    buy_signals = signals.get('buy', [])
+    if buy_signals:
+        report_lines.append("## 🟢 买入信号 (上涨概率 > 阈值)")
+        report_lines.append("")
+        report_lines.append("| 代码 | 上涨概率 | 置信度 | 信号强度 |")
+        report_lines.append("|------|----------|--------|----------|")
+        for s in sorted(buy_signals, key=lambda x: x['probability'], reverse=True):
+            report_lines.append(
+                f"| {s['code']} | {s['probability']:.2%} | {s['confidence']:.2%} | {s['signal_strength']:.4f} |"
+            )
+        report_lines.append("")
+    
+    # 卖出信号详情
+    sell_signals = signals.get('sell', [])
+    if sell_signals:
+        report_lines.append("## 🔴 卖出信号 (下跌概率 > 阈值)")
+        report_lines.append("")
+        report_lines.append("| 代码 | 下跌概率 | 置信度 | 信号强度 |")
+        report_lines.append("|------|----------|--------|----------|")
+        for s in sorted(sell_signals, key=lambda x: x['probability']):
+            down_prob = 1 - s['probability']
+            report_lines.append(
+                f"| {s['code']} | {down_prob:.2%} | {s['confidence']:.2%} | {s['signal_strength']:.4f} |"
+            )
+        report_lines.append("")
+    
+    # 持有观望
+    hold_signals = signals.get('hold', [])
+    if hold_signals:
+        report_lines.append("## 🟡 持有观望 (信号不明确)")
+        report_lines.append("")
+        report_lines.append("| 代码 | 上涨概率 | 置信度 |")
+        report_lines.append("|------|----------|--------|")
+        for s in sorted(hold_signals, key=lambda x: x['probability'], reverse=True):
+            report_lines.append(
+                f"| {s['code']} | {s['probability']:.2%} | {s['confidence']:.2%} |"
+            )
+        report_lines.append("")
+    
+    report_lines.append("## ⚠️ 风险提示")
+    report_lines.append("")
+    report_lines.append("- 本信号仅供参考，不构成投资建议")
+    report_lines.append("- ML模型基于历史数据训练，未来表现不保证")
+    report_lines.append("- 请结合基本面、技术面和风险承受能力综合判断")
+    report_lines.append("")
+    
+    report = "\n".join(report_lines)
+    
+    # 打印报告摘要
+    print("\n" + "=" * 70)
+    print("ML模型预测信号报告")
+    print("=" * 70)
+    print(f"\n模型: {model_info.get('best_model', 'N/A')}")
+    print(f"准确率: {model_info.get('accuracy', 0):.2%} | F1: {model_info.get('f1', 0):.4f}")
+    print(f"扫描标的: {scanned_count} 只 | 阈值: {threshold:.2%}")
+    print()
+    print(f"🟢 买入信号: {len(buy_signals)} 只")
+    print(f"🔴 卖出信号: {len(sell_signals)} 只")
+    print(f"🟡 持有观望: {len(hold_signals)} 只")
+    
+    if buy_signals:
+        print(f"\n🟢 买入信号 Top 5:")
+        for s in buy_signals[:5]:
+            print(f"  {s['code']}: 上涨概率 {s['probability']:.2%}, 置信度 {s['confidence']:.2%}")
+    
+    if sell_signals:
+        print(f"\n🔴 卖出信号 Top 5:")
+        for s in sell_signals[:5]:
+            down_prob = 1 - s['probability']
+            print(f"  {s['code']}: 下跌概率 {down_prob:.2%}, 置信度 {s['confidence']:.2%}")
+    
+    # 保存报告
+    if args.output:
+        report_dir = os.path.join(BASE_DIR, 'reports')
+        os.makedirs(report_dir, exist_ok=True)
+        report_path = os.path.join(report_dir, args.output)
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report)
+        print(f"\n✅ 报告已保存: {report_path}")
+    
+    # 归档到每日报告目录
+    archive_path = archive_report(
+        BASE_DIR, 
+        f'ML预测信号_{datetime.now().strftime("%Y%m%d")}.md', 
+        report
+    )
+    print(f"✅ 报告已归档: {archive_path}")
+    
+    progress.update(5, "完成")
+    progress.complete(f"扫描完成: 买入{len(buy_signals)} / 卖出{len(sell_signals)} / 持有{len(hold_signals)}")
+    
+    return result
 
 def run_live_monitoring(args):
     """实时监控模式 - 盘中实时行情监控 + 自动再平衡"""
@@ -1589,6 +1761,7 @@ def main():
     mode_group.add_argument('--futures-options', action='store_true', help='期货期权扫描模式 (新增)')
     mode_group.add_argument('--unified-monitor', action='store_true', help='统一监控模式 - 一键启动所有模块 (新增)')
     mode_group.add_argument('--ai-hedge', action='store_true', help='AI Hedge Fund - 19位大师级AI分析师联合决策 (v5.6新增)')
+    mode_group.add_argument('--ml-signal', action='store_true', help='ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)')
     
     # --daily 子阶段
     parser.add_argument('--phase', choices=['premarket', 'intraday', 'postmarket', 'all'],
@@ -1612,6 +1785,9 @@ def main():
     parser.add_argument('--list', action='store_true', help='列出研究假设')
     parser.add_argument('--register', type=str, help='注册新假设: id|名称|描述')
     parser.add_argument('--validate', type=str, help='验证指定假设')
+    
+    # ML信号选项
+    parser.add_argument('--threshold', type=float, default=0.55, help='ML信号: 买入信号阈值 (默认 0.55)')
     
     args = parser.parse_args()
     
@@ -1658,6 +1834,8 @@ def main():
         run_unified_monitor(args)
     elif args.ai_hedge:
         run_ai_hedge_mode(args)
+    elif args.ml_signal:
+        run_ml_signal_mode(args)
 
 def run_ai_hedge_mode(args):
     """AI Hedge Fund — 19位大师级AI分析师联合决策模式"""

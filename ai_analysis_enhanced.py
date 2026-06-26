@@ -28,6 +28,13 @@ from fin_sentiment_analyzer import (
     EventType, INDUSTRY_KEYWORDS
 )
 
+# 从独立模块导入增强版风险预警 (向后兼容别名)
+try:
+    from risk_early_warning import RiskEarlyWarning as PortfolioRiskEarlyWarning
+    _RISK_EARLY_WARNING_OK = True
+except ImportError:
+    _RISK_EARLY_WARNING_OK = False
+
 WIND_CLI = os.environ.get(
     "WIND_CLI_PATH",
     os.path.expandvars(r"%USERPROFILE%\.agents\skills\wind-mcp-skill\scripts\cli.mjs")
@@ -414,77 +421,70 @@ class EnhancedSuggestionEngine:
 # ============================================================
 # 组合舆情风险预警 (新增功能)
 # ============================================================
-class PortfolioRiskEarlyWarning:
-    """组合舆情风险预警系统"""
+if not _RISK_EARLY_WARNING_OK:
+    # 降级: 保留简化版风险预警 (仅当独立模块不可用时)
+    class PortfolioRiskEarlyWarning:
+        """组合舆情风险预警系统 (降级版本)"""
 
-    def __init__(self, sentiment_analyzer=None, yizhao_loader=None):
-        self.sentiment = sentiment_analyzer or get_sentiment_analyzer()
-        self.yizhao = yizhao_loader or get_yizhao_loader()
+        def __init__(self, sentiment_analyzer=None, yizhao_loader=None):
+            self.sentiment = sentiment_analyzer or get_sentiment_analyzer()
+            self.yizhao = yizhao_loader or get_yizhao_loader()
 
-    def scan_risk_events(self, code: str) -> List[Dict]:
-        """扫描单个标的的风险事件"""
-        if not self.yizhao.is_loaded:
-            return []
+        def scan_risk_events(self, code: str) -> List[Dict]:
+            if not self.yizhao.is_loaded:
+                return []
+            results = self.yizhao.search_by_code(code, top_k=20)
+            risk_events = []
+            risk_keywords = ['风险', '违约', '爆仓', '诉讼', '处罚', '调查',
+                             'ST', '退市', '亏损', '下滑', '暴雷', '减持']
+            for r in results:
+                text_short = r.doc.text[:2000]
+                matched_risks = [kw for kw in risk_keywords if kw in text_short]
+                if matched_risks:
+                    sentiment = self.sentiment.analyze_text(text_short)
+                    risk_events.append({
+                        'title': r.doc.title,
+                        'source': r.doc.source_domain,
+                        'risks': matched_risks,
+                        'sentiment': sentiment['polarity'],
+                        'severity': 'high' if sentiment['score'] <= 0.3 else 'medium',
+                        'snippet': text_short[:150]
+                    })
+            return sorted(risk_events,
+                          key=lambda x: 0 if x['severity'] == 'high' else 1)
 
-        results = self.yizhao.search_by_code(code, top_k=20)
-        risk_events = []
+        def generate_risk_report(self, codes: List[str] = None) -> Dict:
+            if codes is None:
+                codes = list(self.yizhao.config.portfolio_keywords.keys())
+            warnings = []
+            for code in codes:
+                events = self.scan_risk_events(code)
+                high_severity = [e for e in events if e['severity'] == 'high']
+                if high_severity:
+                    warnings.append({
+                        'code': code,
+                        'high_risk_count': len(high_severity),
+                        'events': high_severity[:3]
+                    })
+            alert_level = 'normal'
+            if len(warnings) >= 3:
+                alert_level = 'critical'
+            elif len(warnings) >= 1:
+                alert_level = 'warning'
+            return {
+                'alert_level': alert_level,
+                'warning_count': len(warnings),
+                'warnings': warnings,
+                'suggestion': self._get_risk_suggestion(alert_level, warnings)
+            }
 
-        risk_keywords = ['风险', '违约', '爆仓', '诉讼', '处罚', '调查',
-                         'ST', '退市', '亏损', '下滑', '暴雷', '减持']
-
-        for r in results:
-            text_short = r.doc.text[:2000]
-            matched_risks = [kw for kw in risk_keywords if kw in text_short]
-            if matched_risks:
-                sentiment = self.sentiment.analyze_text(text_short)
-                risk_events.append({
-                    'title': r.doc.title,
-                    'source': r.doc.source_domain,
-                    'risks': matched_risks,
-                    'sentiment': sentiment['polarity'],
-                    'severity': 'high' if sentiment['score'] <= 0.3 else 'medium',
-                    'snippet': text_short[:150]
-                })
-
-        return sorted(risk_events,
-                      key=lambda x: 0 if x['severity'] == 'high' else 1)
-
-    def generate_risk_report(self, codes: List[str] = None) -> Dict:
-        """生成组合风险预警报告"""
-        if codes is None:
-            codes = list(self.yizhao.config.portfolio_keywords.keys())
-
-        warnings = []
-        for code in codes:
-            events = self.scan_risk_events(code)
-            high_severity = [e for e in events if e['severity'] == 'high']
-            if high_severity:
-                warnings.append({
-                    'code': code,
-                    'high_risk_count': len(high_severity),
-                    'events': high_severity[:3]
-                })
-
-        alert_level = 'normal'
-        if len(warnings) >= 3:
-            alert_level = 'critical'
-        elif len(warnings) >= 1:
-            alert_level = 'warning'
-
-        return {
-            'alert_level': alert_level,
-            'warning_count': len(warnings),
-            'warnings': warnings,
-            'suggestion': self._get_risk_suggestion(alert_level, warnings)
-        }
-
-    def _get_risk_suggestion(self, level: str, warnings: List[Dict]) -> str:
-        if level == 'critical':
-            return "检测到多个标的出现高风险舆情, 建议立即评估持仓风险, 考虑减仓"
-        elif level == 'warning':
-            codes = [w['code'] for w in warnings]
-            return f"标的 {', '.join(codes)} 出现风险舆情, 建议密切关注"
-        return "未检测到显著风险舆情, 维持正常监控"
+        def _get_risk_suggestion(self, level: str, warnings: List[Dict]) -> str:
+            if level == 'critical':
+                return "检测到多个标的出现高风险舆情, 建议立即评估持仓风险, 考虑减仓"
+            elif level == 'warning':
+                codes = [w['code'] for w in warnings]
+                return f"标的 {', '.join(codes)} 出现风险舆情, 建议密切关注"
+            return "未检测到显著风险舆情, 维持正常监控"
 
 
 # ============================================================

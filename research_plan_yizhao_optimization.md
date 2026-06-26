@@ -46,20 +46,25 @@ YiZhao-FinDataSet 是哈工大(深圳)与招商银行AI实验室联合发布的 
 - 使用QA对数据增强政策/估值分析
 - 增加行业对比分析维度
 
-### 模块5: 多因子信号生成器 (multi_factor_signal.py)
+### 模块5: 多因子信号生成器 (multi_factor_signal.py) ✅ 已实现
 - 新增因子: 舆情情绪因子、事件冲击因子、文本热度因子
-- 与现有双均线因子融合
-- 因子权重通过回测优化
+- 与现有双均线因子融合 (dual_ma + MACD + RSI)
+- 因子权重通过回测优化 (网格搜索 + IC最大化)
+- 综合信号: strong_buy/buy/hold/sell/strong_sell
+- 实现文件: `multi_factor_signal.py` (2026-06-26)
 
-### 模块6: 增强风控 (risk_early_warning.py)
-- 舆情预警: 负面新闻密度检测
-- 事件预警: 重大风险事件识别
-- 行业联动预警
+### 模块6: 增强风控 (risk_early_warning.py) ✅ 已实现
+- 舆情预警: 负面新闻密度检测 (时间加权)
+- 事件预警: 重大风险事件识别 (3级严重度: critical/high/medium)
+- 行业联动预警: 跨标的负面情绪传导 + 行业传染系数
+- 综合风险评估: 融合多维度评分 + 行动建议
+- 实现文件: `risk_early_warning.py` (2026-06-26)
+- 向后兼容: `ai_analysis_enhanced.py` 中的 `PortfolioRiskEarlyWarning` 自动升级
 
 ## 四、实施优先级
 
-P0: yizhao_data_loader.py (数据基础)
-P1: fin_sentiment_analyzer.py (核心分析能力)
-P2: ai_analysis_enhanced.py (替换硬编码)
-P3: multi_factor_signal.py (策略增强)
-P4: event_driven_factor.py + risk_early_warning.py (风控增强)
+P0: yizhao_data_loader.py ✅ (数据基础)
+P1: fin_sentiment_analyzer.py ✅ (核心分析能力)
+P2: ai_analysis_enhanced.py ✅ (替换硬编码)
+P3: multi_factor_signal.py ✅ (策略增强)
+P4: event_driven_factor.py ✅ + risk_early_warning.py ✅ (风控增强)

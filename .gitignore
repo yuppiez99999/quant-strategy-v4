@@ -11,7 +11,6 @@
 .env.*.local
 *.env.local
 config/*.private.json
-config/settings.yaml
 config/credentials.json
 config/api_keys.json
 config/secrets.yaml
@@ -59,6 +58,7 @@ daily_report.txt
 !sample_*.xlsx
 
 # ── 5. 模型与大文件 ─────────────────────────────────
+models/
 models/*.pth
 models/*.pt
 models/*.bin
@@ -131,19 +131,24 @@ update_claude_version.py
 test_*.py
 _quick_test.py
 _test_models.py
-*_test.py
 
 # ── 11. 批处理和脚本文件（可能含敏感路径） ─────────────
 *.bat
 *.ps1
 !README*.md
 
-# ── 12. 配置和报告文件（含策略信息） ──────────────────
+# ── 12. 配置文件（含策略和账户信息） ──────────────────
 config/rebalance.yaml
 config/risk.yaml
 investment_report.json
 investment_report.md
 requirements.txt
+config/settings.yaml
+config/portfolio.yaml
+config/portfolio_v3.yaml
+config/watchlist.yaml
+config/stop_loss_*.yaml
+config/rebalance_stop_loss_*.json
 
 # ── 13. 系统文件 ────────────────────────────────────
 .DS_Store
@@ -151,96 +156,77 @@ Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
-# ── 11. 测试与覆盖率 ────────────────────────────────
+# ── 14. 测试与覆盖率 ────────────────────────────────
 .pytest_cache/
 .coverage
 .tox/
 .nox/
 
-# ── 12. 嵌套 Git 仓库 ───────────────────────────────
+# ── 15. 嵌套 Git 仓库 ───────────────────────────────
 Shadowbroker/
 
-# ── 13. 归档数据 ────────────────────────────────────
+# ── 16. 归档数据 ────────────────────────────────────
 _archive*/
 _archive_*/
 _archive_20260620/
 每日报告归档/
 
-# ── 14. 投资计划与个人记录（配置级） ──────────────────
-config/stop_loss_*.yaml
-config/portfolio.yaml
-config/portfolio_v3.yaml
-config/watchlist.yaml
+# ── 17. 投资计划与个人记录（配置级） ──────────────────
 2026年交易计划*.md
 !2026年交易计划_优化版_v2.md.example
-
-# ── 15. PDF 报告（可能含持仓信息） ───────────────────
-*.pdf
-!template_*.pdf
-!example_*.pdf
-
-# ── 16. 财务分析结果（个人敏感） ────────────────────
-玻璃基板投资标的分析.txt
-training_data.csv
-训练数据.csv
-
-# ── 17. Shadowbroker 子项目 ─────────────────────────
-Shadowbroker/
-Shadowbroker/**
-
-# ============================================================
-# 使用说明：
-# 1. .env / .env.local 包含 API Key，禁止上传
-# 2. data/positions.json 包含真实持仓，禁止上传
-# 3. config/portfolio.yaml 包含个人投资策略，禁止上传
-# 4. 复制 .env.example 模板供协作者使用
-# 5. 上传前运行：git status 确认无敏感文件
-# 6. 验证命令：git check-ignore -v .env
-# ============================================================
-
-# 真实持仓和交易计划（不公开）
 build_plan_100w.json
 build_plan_100w.md
 build_plan_100w.py
 rebalance_output.txt
-config/positions.json
-config/price_history.jsonl
 
-# 整个 models 目录（模型大文件）
-models/
+# ── 18. PDF 报告（可能含持仓信息） ───────────────────
+*.pdf
+!template_*.pdf
+!example_*.pdf
 
-# 止损止盈规则（含真实标的配置）
-config/stop_loss_*.yaml
-config/rebalance_stop_loss_*.json
+# ── 19. 财务分析结果（个人敏感） ────────────────────
+玻璃基板投资标的分析.txt
+training_data.csv
+训练数据.csv
 
-# 每日报告归档
-每日报告归档/
-reports/
-
-# UI 日志
-ui/logs/
-
-# 交易日志
-trade_logs/
-
-# Shadowbroker 子项目
+# ── 20. Shadowbroker 子项目 ─────────────────────────
 Shadowbroker/
+Shadowbroker/**
 
-# 超算 SSH 密钥
+# ── 21. 超算 SSH 密钥 ───────────────────────────────
 *RsaKey*.txt
 *private*.txt
 *key*.txt
 
-# 注册表文件
+# ── 22. 注册表文件 ──────────────────────────────────
 *.reg
 
-# ── 训练日志与临时文件 ─────────────────────────────
+# ── 23. 训练日志与临时文件 ──────────────────────────
 train_log_*.txt
 *_log_full.txt
 *_log_err.txt
 *_train_log*.txt
 \# Phase 2*.txt
 
-# ── 模型训练输出（可重新生成） ─────────────────────
+# ── 24. 模型训练输出（可重新生成） ──────────────────
 model_train/output/
 model_train/models/
+
+# ============================================================
+# 允许保留的模板文件（不应被忽略）
+# ============================================================
+!config/positions_template.json
+!config/portfolio_template.yaml
+!.env.example
+!.env.template
+!_test_ml.py
+
+# ============================================================
+# 使用说明：
+# 1. .env / .env.local 包含 API Key，禁止上传
+# 2. config/positions.json 包含真实持仓，禁止上传
+# 3. config/portfolio.yaml 包含个人投资策略，禁止上传
+# 4. 复制 .env.example 或 .env.template 模板供协作者使用
+# 5. 上传前运行：git status 确认无敏感文件
+# 6. 验证命令：git check-ignore -v .env
+# ============================================================
