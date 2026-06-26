@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-量化策略系统 v5.6- 康波周期 + 十五五规划 + 社保基金ETF追踪 优化版
+量化策略系统 v5.7- 康波周期 + 十五五规划 + 社保基金ETF追踪 优化版
 整合所有核心模块的统一入口，基于 2026 年交易计划优化版
 
 配置风格: 核心-卫星 + 动量择时 + 风险平价
@@ -229,6 +229,21 @@ stop_loss = loader.load('stop_loss_monitor', {
 # 策略注册表实例
 strategy_registry = StrategyRegistry()
 connector_manager = DataConnectorManager()
+
+# ============================================================
+# 注册所有数据源连接器 (Wind MCP → iFinD MCP → Sina → 本地缓存)
+# ============================================================
+try:
+    from quant_modules.connectors import register_all_connectors
+    n_registered = register_all_connectors(connector_manager)
+    if n_registered > 0:
+        logger.info(f"✅ 数据源连接器注册完成: {n_registered} 个可用")
+    else:
+        logger.warning("⚠️ 无可用数据源连接器，系统将以离线模式运行")
+except ImportError as e:
+    logger.warning(f"⚠️ 连接器注册模块加载失败: {e}")
+except Exception as e:
+    logger.warning(f"⚠️ 连接器注册异常: {e}")
 
 # ============================================================
 # 康波周期 / 十五五规划 / 社保基金ETF 分析模块 (v5.1 新增)

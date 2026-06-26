@@ -1,8 +1,8 @@
-# 量化策略系统 v5.6
+﻿# 量化策略系统 v5.7
 
 > **AI驱动的多策略量化投资组合管理系统**
 >
-> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 | 数据源: Wind MCP（优先）→ iFinD → 新浪 → AKShare → 本地缓存
+> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 | 数据源: Wind MCP（优先）→ iFinD → 新浪 → AKShare → 本地缓存 | LLM: 本地 Ollama Qwen2.5:7B + 豆包 Speed
 
 ---
 
@@ -12,6 +12,7 @@
 
 - Python ≥ 3.8（推荐 3.10+）
 - Node.js ≥ 18（Wind MCP CLI）
+- Ollama ≥ 0.30（本地 LLM 推理，需下载安装）
 - Streamlit ≥ 1.30
 - scikit-learn ≥ 1.0
 - xgboost ≥ 2.0（ML模型训练）
@@ -44,11 +45,15 @@ IFIND_TOKEN=your_ifind_token_here
 # Tushare Token（期货数据）
 TS_TOKEN=your_ts_token_here
 
-# DeepSeek V4 Pro API（LLM决策引擎）
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
+# ---- LLM 配置（AI Hedge Fund / AI 决策引擎） ----
+# 推荐：本地 Ollama Qwen2.5（免费，无需联网）
+AI_HEDGE_MODEL=qwen2.5:7b
+AI_HEDGE_PROVIDER=Ollama
+OLLAMA_BASE_URL=http://localhost:11434
 
-# Volcengine API Key（豆包LLM）
+# 备选：豆包 Speed（云端，需 API Key）
 VOLCENGINE_API_KEY=your_volcengine_api_key_here
+VOLCENGINE_MODEL=doubao-speed-32k
 
 # 报告输出目录
 REPORT_OUTPUT_DIR=./每日报告归档
@@ -61,146 +66,146 @@ LOG_LEVEL=INFO
 
 ## 二、主程序 CLI 模式（19种运行模式）
 
-主程序入口：`量化策略系统 v5.6.py`
+主程序入口：`量化策略系统 v5.7.py`
 
 ```bash
-python "量化策略系统 v5.6.py" --<模式> [选项]
+python "量化策略系统 v5.7.py" --<模式> [选项]
 ```
 
 ### 2.1 基础模式
 
 | 模式 | 说明 | 示例 |
 |------|------|------|
-| `--live` | 实时监控模式（盘中行情监控） | `python 量化策略系统 v5.6.py --live` |
-| `--report` | 报告生成模式 | `python 量化策略系统 v5.6.py --report` |
-| `--check` | 系统健康检查 | `python 量化策略系统 v5.6.py --check` |
-| `--risk` | 风险监控模式（止损止盈状态） | `python 量化策略系统 v5.6.py --risk` |
+| `--live` | 实时监控模式（盘中行情监控） | `python 量化策略系统 v5.7.py --live` |
+| `--report` | 报告生成模式 | `python 量化策略系统 v5.7.py --report` |
+| `--check` | 系统健康检查 | `python 量化策略系统 v5.7.py --check` |
+| `--risk` | 风险监控模式（止损止盈状态） | `python 量化策略系统 v5.7.py --risk` |
 
 ### 2.2 再平衡模式
 
 ```bash
 # 执行再平衡（Excel驱动）
-python "量化策略系统 v5.6.py" --rebalance
+python "量化策略系统 v5.7.py" --rebalance
 
 # 再平衡 + 同步止损止盈规则
-python "量化策略系统 v5.6.py" --rebalance --sync-sl
+python "量化策略系统 v5.7.py" --rebalance --sync-sl
 ```
 
 ### 2.3 三阶段工作流
 
 ```bash
 # 盘前计划
-python "量化策略系统 v5.6.py" --daily --phase premarket
+python "量化策略系统 v5.7.py" --daily --phase premarket
 
 # 盘中策略
-python "量化策略系统 v5.6.py" --daily --phase intraday
+python "量化策略系统 v5.7.py" --daily --phase intraday
 
 # 盘后报告
-python "量化策略系统 v5.6.py" --daily --phase postmarket
+python "量化策略系统 v5.7.py" --daily --phase postmarket
 
 # 完整三阶段（盘前 → 盘中 → 盘后）
-python "量化策略系统 v5.6.py" --daily --phase all
+python "量化策略系统 v5.7.py" --daily --phase all
 ```
 
 ### 2.4 ETF资金流向监控
 
 ```bash
-python "量化策略系统 v5.6.py" --etf-flow
+python "量化策略系统 v5.7.py" --etf-flow
 ```
 
 ### 2.5 投资组合优化
 
 ```bash
-python "量化策略系统 v5.6.py" --portfolio-opt
+python "量化策略系统 v5.7.py" --portfolio-opt
 ```
 
 ### 2.6 康波周期监控
 
 ```bash
-python "量化策略系统 v5.6.py" --kommo-monitor
+python "量化策略系统 v5.7.py" --kommo-monitor
 ```
 
 ### 2.7 大宗商品基本面
 
 ```bash
-python "量化策略系统 v5.6.py" --commodity-fund
+python "量化策略系统 v5.7.py" --commodity-fund
 ```
 
 ### 2.8 时序预测训练
 
 ```bash
-python "量化策略系统 v5.6.py" --train-model
+python "量化策略系统 v5.7.py" --train-model
 ```
 
 ### 2.9 康波周期+十五五交叠分析
 
 ```bash
-python "量化策略系统 v5.6.py" --kondratiev
+python "量化策略系统 v5.7.py" --kondratiev
 ```
 
 ### 2.10 十五五规划适配分析
 
 ```bash
-python "量化策略系统 v5.6.py" --fifteen-five
+python "量化策略系统 v5.7.py" --fifteen-five
 ```
 
 ### 2.11 社保基金ETF风格追踪
 
 ```bash
-python "量化策略系统 v5.6.py" --social-security
+python "量化策略系统 v5.7.py" --social-security
 ```
 
 ### 2.12 宏观综合分析（一键三大）
 
 ```bash
-python "量化策略系统 v5.6.py" --macro-analysis
+python "量化策略系统 v5.7.py" --macro-analysis
 ```
 
 ### 2.13 AI盘中实时决策
 
 ```bash
-python "量化策略系统 v5.6.py" --ai-decision
+python "量化策略系统 v5.7.py" --ai-decision
 ```
 
 ### 2.14 期货期权扫描
 
 ```bash
-python "量化策略系统 v5.6.py" --futures-options
+python "量化策略系统 v5.7.py" --futures-options
 ```
 
 ### 2.15 统一监控模式（一键启动所有模块）
 
 ```bash
-python "量化策略系统 v5.6.py" --unified-monitor
+python "量化策略系统 v5.7.py" --unified-monitor
 ```
 
 ### 2.16 AI Hedge Fund（19位大师级AI分析师）
 
 ```bash
 # 基础用法
-python "量化策略系统 v5.6.py" --ai-hedge
+python "量化策略系统 v5.7.py" --ai-hedge
 
 # 指定股票代码
-python "量化策略系统 v5.6.py" --ai-hedge --ticker 600519 000858
+python "量化策略系统 v5.7.py" --ai-hedge --ticker 600519 000858
 
 # 选择特定分析师
-python "量化策略系统 v5.6.py" --ai-hedge --analysts warren_buffett charlie_munger
+python "量化策略系统 v5.7.py" --ai-hedge --analysts warren_buffett charlie_munger
 
 # 显示分析推理过程
-python "量化策略系统 v5.6.py" --ai-hedge --show-reasoning
+python "量化策略系统 v5.7.py" --ai-hedge --show-reasoning
 ```
 
 ### 2.17 ML模型预测信号 ⭐ NEW
 
 ```bash
 # 基础用法（默认阈值 55%）
-python "量化策略系统 v5.6.py" --ml-signal
+python "量化策略系统 v5.7.py" --ml-signal
 
 # 自定义信号阈值（提高置信度要求）
-python "量化策略系统 v5.6.py" --ml-signal --threshold 0.6
+python "量化策略系统 v5.7.py" --ml-signal --threshold 0.6
 
 # 保存报告到指定文件
-python "量化策略系统 v5.6.py" --ml-signal -o ML信号报告.md
+python "量化策略系统 v5.7.py" --ml-signal -o ML信号报告.md
 ```
 
 **输出示例**:
@@ -217,10 +222,10 @@ python "量化策略系统 v5.6.py" --ml-signal -o ML信号报告.md
 ### 2.18 回测模式
 
 ```bash
-python "量化策略系统 v5.6.py" --backtest
+python "量化策略系统 v5.7.py" --backtest
 
 # 指定时间范围
-python "量化策略系统 v5.6.py" --backtest --start-date 2025-01-01 --end-date 2026-06-26
+python "量化策略系统 v5.7.py" --backtest --start-date 2025-01-01 --end-date 2026-06-26
 ```
 
 ### 2.19 通用选项
@@ -295,7 +300,7 @@ models/
 
 ```
 11_量化策略/
-├── 量化策略系统 v5.6.py                # 主程序入口（19种CLI模式）⭐
+├── 量化策略系统 v5.7.py                # 主程序入口（19种CLI模式）⭐
 ├── ui/                                 # Streamlit多页面UI
 │   ├── app.py                          # Streamlit主入口
 │   ├── components/                     # UI组件
@@ -366,9 +371,84 @@ models/
 
 ---
 
-## 五、核心模块
+## 五、本地 LLM 部署（Ollama + Qwen2.5）
 
-### 5.1 ML模型预测模块 ⭐ NEW
+本项目支持本地 LLM 推理，无需云端 API Key，数据不出本机。
+
+### 5.1 安装 Ollama
+
+从 [ollama.com](https://ollama.com/download) 下载安装，或使用包管理器：
+
+```bash
+# Windows: 下载安装程序，建议将模型目录设到大容量盘符
+# 安装后设置模型存储路径（不占 C 盘）
+setx OLLAMA_MODELS "D:\Ollama\models"
+```
+
+### 5.2 拉取模型
+
+```bash
+# 推荐 7B（~4.7GB，8GB RAM 可运行）
+ollama pull qwen2.5:7b
+
+# 进阶 14B（~9GB，需 16GB+ RAM）
+ollama pull qwen2.5:14b
+```
+
+### 5.3 启动服务
+
+```bash
+# 启动 Ollama 服务（默认监听 127.0.0.1:11434）
+ollama serve
+
+# 如遇 CUDA 兼容问题（RTX 3060 等），强制 CPU 模式
+set OLLAMA_NUM_GPU=0 && ollama serve
+```
+
+### 5.4 验证可用
+
+```bash
+ollama list
+# 输出示例:
+# NAME            ID              SIZE      MODIFIED
+# qwen2.5:7b      xxxxxxxx        4.7 GB    2 minutes ago
+# qwen2.5:14b     xxxxxxxx        9.0 GB    5 minutes ago
+```
+
+### 5.5 当前部署状态
+
+| 项目 | 状态 |
+|------|------|
+| Ollama 版本 | v0.30.9 |
+| 安装位置 | C:\Users\...\Programs\Ollama\ |
+| 模型存储 | D:\Ollama\models（不占 C 盘） |
+| 可用模型 | qwen2.5:7b（~26s/次 CPU）、qwen2.5:14b（已下载，需更多内存） |
+| GPU 支持 | RTX 3060（6GB）暂不可用，需编译自定义 Ollama CUDA 版本 |
+
+### 5.6 切换 LLM 提供方
+
+在 `.env` 中修改：
+
+```bash
+# 本地 Ollama（默认）
+AI_HEDGE_PROVIDER=Ollama
+AI_HEDGE_MODEL=qwen2.5:7b
+
+# 云端豆包
+AI_HEDGE_PROVIDER=Volcengine
+AI_HEDGE_MODEL=doubao-speed-32k
+
+# OpenAI 兼容接口（vLLM / LM Studio 等）
+AI_HEDGE_PROVIDER=OpenAI
+AI_HEDGE_MODEL=qwen2.5-14b-instruct
+OPENAI_API_BASE=http://localhost:8000/v1
+```
+
+---
+
+## 六、核心模块
+
+### 6.1 ML模型预测模块 ⭐ NEW
 
 **文件**: `utils/ml_predictor.py`
 
@@ -395,7 +475,7 @@ print(f"买入信号: {len(result['signals']['buy'])}")
 print(f"卖出信号: {len(result['signals']['sell'])}")
 ```
 
-### 5.2 AI Hedge Fund ⭐
+### 6.2 AI Hedge Fund ⭐
 
 **文件**: `quant_modules/ai_hedge_fund/orchestrator.py`
 
@@ -404,6 +484,9 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 - 价值投资、成长投资、逆向投资等多策略
 - 基本面分析、技术分析、情绪分析
 - 风险评估与仓位建议
+- **支持本地 Ollama Qwen2.5 推理**（无需云端 API）
+
+**LLM 后端**: 本地 Ollama Qwen2.5:7B（默认）| 豆包 Speed | OpenAI 兼容接口
 
 **支持的分析师**:
 | 分析师 | 投资风格 |
@@ -418,7 +501,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 | Bill Ackman | 激进投资 |
 | ... | ... |
 
-### 5.3 AI量化再平衡引擎
+### 6.3 AI量化再平衡引擎
 
 **文件**: `quant_modules/ai_rebalancing_engine.py`
 
@@ -429,7 +512,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 - 止损规则（按类别差异化）
 - 信号聚合与置信度评估
 
-### 5.4 四大理论引擎
+### 6.4 四大理论引擎
 
 | 理论 | 核心思想 | 输出信号 |
 |------|----------|----------|
@@ -438,7 +521,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 | 第一性原理 | 基本面 → 内在价值 → 安全边际 | 价值信号 |
 | 巴菲特芒格 | 护城河 → 长期持有 → 复利增长 | 持有信号 |
 
-### 5.5 期货期权信号系统
+### 6.5 期货期权信号系统
 
 **文件**: `signals/futures_options_signal.py`
 
@@ -448,7 +531,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 - 期权信号生成（沪深300/上证50等ETF期权）
 - AI决策引擎（置信度评估/仓位计算/风险管理）
 
-### 5.6 数据获取（优先级链）
+### 6.6 数据获取（优先级链）
 
 | 优先级 | 数据源 | 覆盖 | 说明 |
 |--------|--------|------|------|
@@ -462,9 +545,9 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 
 ---
 
-## 六、持仓配置
+## 七、持仓配置
 
-### 6.1 权益组合（14标的 + 现金）
+### 7.1 权益组合（14标的 + 现金）
 
 | 板块 | 标的数 | 权重 | 标的示例 |
 |------|--------|------|----------|
@@ -473,7 +556,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 | 资源 | 2 | 20% | 华安黄金ETF/藏格矿业 |
 | 防御 | 3 | 15% | 恒瑞医药/药明康德/科伦药业 |
 
-### 6.2 止损规则
+### 7.2 止损规则
 
 | 类别 | 止损线 |
 |------|--------|
@@ -485,9 +568,9 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 
 ---
 
-## 七、Streamlit监控面板
+## 八、Streamlit监控面板
 
-### 7.1 启动方式
+### 8.1 启动方式
 
 ```bash
 # 方式1: Streamlit直接启动
@@ -500,12 +583,12 @@ streamlit run ui/app.py --server.port 8501
 python run_ui.py
 ```
 
-### 7.2 访问地址
+### 8.2 访问地址
 
 - Local: http://localhost:8501
 - Network: http://192.168.0.105:8501
 
-### 7.3 功能页面
+### 8.3 功能页面
 
 | 页面 | 功能 |
 |------|------|
@@ -522,7 +605,7 @@ python run_ui.py
 | 大宗商品监控 | 商品价格/趋势/预警 + 宏观指标 |
 | 报告管理 | 浏览/搜索/预览/下载历史报告 |
 
-### 7.4 暗色主题
+### 8.4 暗色主题
 
 ```toml
 [theme]
@@ -535,20 +618,21 @@ textColor = "#e6edf3"
 
 ---
 
-## 八、版本历史
+## 九、版本历史
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| v5.6 | 2026-06-26 | **ML模型预测信号系统** ⭐ NEW、AI Hedge Fund |
+| v5.7 | 2026-06-26 | **本地 Ollama Qwen2.5:7B LLM 部署** ⭐、模型存储 D 盘隔离 |
+| v5.6 | 2026-06-26 | ML模型预测信号系统、AI Hedge Fund |
 | v5.5 | 2026-06-21 | AI量化再平衡引擎、四大理论引擎、期货期权扫描器 |
 | v5.2 | 2026-06-18 | DeepSeek V4 Pro LLM决策引擎接入 |
 | v5.1 | 2026-06 | 康波+十五五+社保ETF三大分析模块 |
 
 ---
 
-## 九、常用脚本
+## 十、常用脚本
 
-### 9.1 数据处理
+### 10.1 数据处理
 
 ```bash
 # 补全缺失K线数据
@@ -561,7 +645,7 @@ python check_kline_complete.py
 python get_sina_prices.py
 ```
 
-### 9.2 回测
+### 10.2 回测
 
 ```bash
 # 3年回测
@@ -574,7 +658,7 @@ python fast_backtest.py
 python backtest_engine.py
 ```
 
-### 9.3 分析
+### 10.3 分析
 
 ```bash
 # 持仓统计
@@ -593,7 +677,7 @@ python kontratieff_cycle.py
 python 五年收益预测.py
 ```
 
-### 9.4 风控
+### 10.4 风控
 
 ```bash
 # 止损监控
@@ -605,7 +689,7 @@ python risk_early_warning.py
 
 ---
 
-## 十、相关文件
+## 十一、相关文件
 
 | 文件 | 说明 |
 |------|------|
@@ -617,6 +701,6 @@ python risk_early_warning.py
 
 ---
 
-## 十一、License
+## 十二、License
 
 MIT License - 仅供学习研究使用，不构成投资建议。
