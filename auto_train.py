@@ -70,7 +70,6 @@ class AutoTrainer:
         """特征工程"""
         print('\n[FEATURE] 构建特征...')
         
-        # 先检查数据结构
         print(f'[DEBUG] df形状: {df.shape}')
         print(f'[DEBUG] df列名: {df.columns.tolist()}')
         print(f'[DEBUG] 唯一code数: {df["code"].nunique()}')
@@ -82,16 +81,38 @@ class AutoTrainer:
             if len(group) < 30:
                 continue
             
-            # 重置索引,使日期成为列
-            group = group.reset_index(drop=True)
+            # 重置索引,保留日期信息
+            if isinstance(group.index, pd.DatetimeIndex):
+                group = group.reset_index().rename(columns={'index': 'date'})
+            else:
+                group = group.reset_index(drop=True)
             
-            # 处理日期列
+            # 处理日期列 - 支持多种格式
             if 'date' not in group.columns:
-                if 'index' in group.columns:
-                    group.rename(columns={'index': 'date'}, inplace=True)
-                elif '_DATE' in group.columns:
-                    group['date'] = pd.to_datetime(group['_DATE'].astype(str), format='%Y%m%d')
-            group.drop(columns=['_DATE'], inplace=True)
+                if '_DATE' in group.columns:
+                    # 尝试多种日期格式
+                    try:
+                        group['date'] = pd.to_datetime(group['_DATE'], errors='coerce')
+                    except:
+                        group['date'] = pd.to_datetime(group['_DATE'].astype(str), errors='coerce')
+                elif 'DATE' in group.columns:
+                    group['date'] = pd.to_datetime(group['DATE'], errors='coerce')
+            
+            # 过滤无效日期
+            if 'date' in group.columns:
+                group = group.dropna(subset=['date'])
+            
+            # 删除不需要的列
+            for col in ['_DATE', 'DATE', 'index']:
+                if col in group.columns:
+                    group.drop(columns=[col], inplace=True)
+            
+            # 确保close列存在且为数值
+            if 'close' not in group.columns:
+                continue
+            
+            group['close'] = pd.to_numeric(group['close'], errors='coerce')
+            group = group.dropna(subset=['close'])
             
             # 价格特征
             group['returns'] = group['close'].pct_change()
@@ -146,16 +167,35 @@ class AutoTrainer:
             return None, None
         
         df_features = pd.concat(features, ignore_index=True)
-        df_features.dropna(inplace=True)
         
         # 选择特征列
-        self.feature_cols = [
+        required_cols = [
+            'returns', 'log_returns', 
+            'ma5_ma20', 'ma20_ma60',
+            'volatility_5', 'volatility_20',
+            'rsi', 'macd',
+            'boll_width',
+            'label_up', 'label_return', 'label_3d_return', 'label_3d_up'
+        ]
+        
+        # 检查哪些列存在
+        available_cols = [col for col in required_cols if col in df_features.columns]
+        print(f'[DEBUG] 需要 {len(required_cols)} 列, 实际有 {len(available_cols)} 列')
+        print(f'[DEBUG] 可用列: {available_cols}')
+        
+        # 只保留可用列
+        df_features = df_features[available_cols]
+        
+        # 只对特征列和标签列 dropna
+        df_features = df_features.dropna(subset=available_cols)
+        
+        self.feature_cols = [col for col in [
             'returns', 'log_returns', 
             'ma5_ma20', 'ma20_ma60',
             'volatility_5', 'volatility_20',
             'rsi', 'macd',
             'boll_width'
-        ]
+        ] if col in df_features.columns]
         
         # 确保所有特征列都存在
         self.feature_cols = [col for col in self.feature_cols if col in df_features.columns]

@@ -76,7 +76,8 @@ class StrategyTrainer:
             prices = {}
             for code in self.codes:
                 if date in self.daily_returns[code].index:
-                    prices[code] = float(self.daily_returns[code].loc[date, 'close'])
+                    val = self.daily_returns[code].loc[date, 'close']
+                    prices[code] = float(val) if hasattr(val, '__len__') else float(val)
                 else:
                     prices[code] = None
             
@@ -241,7 +242,7 @@ class StrategyTrainer:
                 try:
                     df = pd.read_parquet(filepath)
                     
-                    # 标准化列名
+                    # 标准化列名 - 支持多种格式
                     column_mapping = {}
                     if '_DATE' in df.columns:
                         column_mapping['_DATE'] = '日期'
@@ -249,12 +250,26 @@ class StrategyTrainer:
                         column_mapping['date'] = '日期'
                     if 'close' in df.columns:
                         column_mapping['close'] = '收盘价'
+                    if '收盘价' in df.columns:
+                        column_mapping['收盘价'] = '收盘价'
+                    if 'WIND代码' in df.columns:
+                        column_mapping['WIND代码'] = 'Wind代码'
                     
                     if column_mapping:
-                        df.rename(columns=column_mapping, inplace=True)
+                        df = df.rename(columns=column_mapping)
                     
-                    # 确保必要列存在
-                    if '日期' in df.columns and '收盘价' in df.columns:
+                    # 如果索引是DatetimeIndex,转为列
+                    if isinstance(df.index, pd.DatetimeIndex):
+                        df = df.reset_index()
+                        # 索引名称可能是'date'或None
+                        if df.columns[0] == 'date':
+                            df.rename(columns={'date': '日期'}, inplace=True)
+                        elif df.columns[0] == 'index':
+                            df.rename(columns={'index': '日期'}, inplace=True)
+                    
+                    if '日期' in df.columns and ('收盘价' in df.columns or 'close' in df.columns):
+                        if '收盘价' not in df.columns and 'close' in df.columns:
+                            df.rename(columns={'close': '收盘价'}, inplace=True)
                         df['Wind代码'] = code
                         all_data.append(df[['日期', '收盘价', 'Wind代码']])
                         self.parquet_files.append(filepath)
@@ -284,14 +299,20 @@ class StrategyTrainer:
         self.df = df
         
         self.daily_returns = {}
+        available_codes = []
         for code in self.codes:
+            if code == 'CASH':
+                continue
             prices = self.df[self.df['code'] == code][['日期', '收盘价']].set_index('日期')
-            prices.columns = ['close']
-            prices['return'] = prices['close'].pct_change().fillna(0)
-            self.daily_returns[code] = prices
+            if len(prices) > 0:
+                prices.columns = ['close']
+                prices['return'] = prices['close'].pct_change().fillna(0)
+                self.daily_returns[code] = prices
+                available_codes.append(code)
         
+        self.codes = available_codes
         self.dates = sorted(set(self.df['日期']))
-        print(f"[DATA] 准备完成, 共 {len(self.dates)} 个交易日")
+        print(f"[DATA] 准备完成, 共 {len(self.dates)} 个交易日, {len(self.daily_returns)} 只标的有数据")
 
 def main():
     import sys

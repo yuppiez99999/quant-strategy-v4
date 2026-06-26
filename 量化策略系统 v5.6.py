@@ -1588,6 +1588,7 @@ def main():
     mode_group.add_argument('--ai-decision', action='store_true', help='GLM5 AI盘中实时决策模式 (v5.2新增)')
     mode_group.add_argument('--futures-options', action='store_true', help='期货期权扫描模式 (新增)')
     mode_group.add_argument('--unified-monitor', action='store_true', help='统一监控模式 - 一键启动所有模块 (新增)')
+    mode_group.add_argument('--ai-hedge', action='store_true', help='AI Hedge Fund - 19位大师级AI分析师联合决策 (v5.6新增)')
     
     # --daily 子阶段
     parser.add_argument('--phase', choices=['premarket', 'intraday', 'postmarket', 'all'],
@@ -1597,6 +1598,15 @@ def main():
     parser.add_argument('--no-ai', action='store_true', help='禁用AI分析模块')
     parser.add_argument('--output', '-o', default=None, help='输出报告文件名')
     parser.add_argument('--sync-sl', action='store_true', help='同步止损止盈规则')
+    
+    # AI Hedge Fund 选项
+    parser.add_argument('--ticker', '-t', nargs='+', default=None, help='AI Hedge Fund: 股票代码列表')
+    parser.add_argument('--analysts', '-a', nargs='*', default=None, help='AI Hedge Fund: 选择分析师 (默认全部)')
+    parser.add_argument('--show-reasoning', action='store_true', help='AI Hedge Fund: 显示分析详情')
+    parser.add_argument('--model', type=str, default=None, help='AI Hedge Fund: LLM 模型名')
+    parser.add_argument('--provider', type=str, default=None, help='AI Hedge Fund: LLM 提供商')
+    parser.add_argument('--start-date', type=str, default=None, help='AI Hedge Fund/回测: 开始日期 YYYY-MM-DD')
+    parser.add_argument('--end-date', type=str, default=None, help='AI Hedge Fund/回测: 结束日期 YYYY-MM-DD')
     
     # 假设验证选项
     parser.add_argument('--list', action='store_true', help='列出研究假设')
@@ -1646,6 +1656,92 @@ def main():
         run_futures_options_scan(args)
     elif args.unified_monitor:
         run_unified_monitor(args)
+    elif args.ai_hedge:
+        run_ai_hedge_mode(args)
+
+def run_ai_hedge_mode(args):
+    """AI Hedge Fund — 19位大师级AI分析师联合决策模式"""
+    # 懒加载以支持无 langchain 环境正常运行其他 CLI 模式
+    try:
+        from quant_modules.ai_hedge_fund.orchestrator import (
+            run_ai_hedge_fund, print_trading_output, get_available_analysts
+        )
+    except ImportError as e:
+        print(f"❌ AI Hedge Fund 模块不可用: {e}")
+        print("   请安装依赖: pip install langgraph langchain langchain-openai python-dotenv")
+        return
+
+    print("=" * 70)
+    print("  🤖 AI Hedge Fund — 多分析师联合决策系统")
+    print("  19位大师级AI分析师 + 风控 + 组合管理")
+    print("=" * 70)
+
+    # 获取标的
+    tickers = []
+    if hasattr(args, 'ticker') and args.ticker:
+        tickers = args.ticker
+    else:
+        # 默认使用持仓中的股票
+        try:
+            cfg = load_portfolio_config()
+            for asset in cfg.get('assets', []):
+                code = asset.get('code', '')
+                if code and code != 'CASH' and not code.startswith(('51', '58', '159', '56')):
+                    tickers.append(code)
+        except Exception:
+            pass
+        if not tickers:
+            tickers = ['600036', '000001', '300750', '600519', '688981']
+
+    print(f"\n  分析标的: {', '.join(tickers)}")
+
+    # 选择分析师
+    if hasattr(args, 'analysts') and args.analysts:
+        selected = args.analysts
+    else:
+        selected = None  # 使用全部
+
+    # 获取可选分析师列表
+    available = get_available_analysts()
+    print(f"  可用分析师: {len(available)} 位")
+    if selected:
+        print(f"  已选择: {', '.join(selected)}")
+
+    # 运行分析
+    print("\n  正在启动 AI Hedge Fund 工作流...")
+    print("  (需要 OPENAI_API_KEY / DEEPSEEK_API_KEY 等 LLM API Key)")
+    print("-" * 70)
+
+    result = run_ai_hedge_fund(
+        tickers=tickers,
+        start_date=getattr(args, 'start_date', None),
+        end_date=getattr(args, 'end_date', None),
+        selected_analysts=selected,
+        show_reasoning=getattr(args, 'show_reasoning', False),
+        model_name=getattr(args, 'model', None),
+        model_provider=getattr(args, 'provider', None),
+    )
+
+    print_trading_output(result)
+
+    # 保存报告
+    try:
+        import json
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'mode': 'ai_hedge',
+            'tickers': tickers,
+            'decisions': result.get('decisions', {}),
+            'analyst_signals': result.get('analyst_signals', {}),
+        }
+        report_dir = get_archive_dir(base_dir=os.path.dirname(os.path.abspath(__file__)))
+        report_path = os.path.join(report_dir, f'AI_Hedge_Fund_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+        print(f"\n  📄 报告已保存: {report_path}")
+    except Exception as e:
+        logger.warning(f"报告保存失败: {e}")
+
 
 if __name__ == '__main__':
     # 打印启动信息

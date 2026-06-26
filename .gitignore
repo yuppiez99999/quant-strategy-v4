@@ -233,3 +233,14 @@ Shadowbroker/
 
 # 注册表文件
 *.reg
+
+# ── 训练日志与临时文件 ─────────────────────────────
+train_log_*.txt
+*_log_full.txt
+*_log_err.txt
+*_train_log*.txt
+\# Phase 2*.txt
+
+# ── 模型训练输出（可重新生成） ─────────────────────
+model_train/output/
+model_train/models/

@@ -2,7 +2,7 @@
 
 > **AI驱动的多策略量化投资组合管理系统**
 >
-> 策略: 风险平价 + 核心-卫星 + 动量择时 | 数据源: Wind MCP（优先）→ 新浪 → AKShare → 本地缓存
+> 策略: 风险平价 + 核心-卫星 + 动量择时 + AI Hedge Fund | 数据源: Wind MCP (P0) → iFinD MCP (P1) → AKShare (P2) → 新浪 (P3) → 本地缓存 (P4) → 兜底价格 (P5)
 
 ---
 
@@ -10,27 +10,48 @@
 
 ### 1.1 环境要求
 
-- Python ≥ 3.10
-- Node.js ≥ 18（Wind MCP CLI）
-- Streamlit ≥ 1.30
-- scikit-learn ≥ 1.0（期货期权信号分析）
+- Python >= 3.10
+- Node.js >= 18 (Wind MCP CLI)
+- Streamlit >= 1.30
+- scikit-learn >= 1.0 (期货期权信号分析)
+- langchain + langgraph (可选, AI Hedge Fund)
 
 ### 1.2 安装依赖
 
 ```bash
+# 核心依赖
 pip install numpy pandas pyyaml streamlit openpyxl python-dotenv requests yfinance plotly scikit-learn scipy
+
+# 可选: AI Hedge Fund
+pip install langgraph langchain langchain-openai
+
+# 可选: 本地LLM推理
+pip install transformers torch accelerate
 ```
 
 ### 1.3 配置 API Key
 
-创建 `.env` 文件：
+创建 `.env` 文件:
 
 ```bash
-# DeepSeek V4 Pro API（LLM决策引擎）
+# DeepSeek V4 Pro API (LLM决策引擎)
 DEEPSEEK_API_KEY=your_deepseek_api_key_here
 
-# Wind MCP API Key（金融数据主源）
+# Wind MCP API Key (金融数据主源, P0)
 WIND_API_KEY=your_wind_api_key_here
+
+# iFinD MCP (同花顺, P1备选)
+IFIND_TOKEN=your_ifind_token_here
+
+# Tushare (国内期货/CPI, P2)
+TS_TOKEN=your_tushare_token_here
+
+# 火山引擎 (豆包 LLM, AI分析)
+VOLCENGINE_API_KEY=your_volcengine_api_key_here
+
+# 报告输出目录
+REPORT_OUTPUT_DIR=./每日报告归档
+LOG_LEVEL=INFO
 ```
 
 ---
@@ -40,88 +61,133 @@ WIND_API_KEY=your_wind_api_key_here
 ### 2.1 启动监控面板
 
 ```bash
-# 启动 Streamlit 监控面板（推荐）
+# 启动 Streamlit 监控面板 (推荐)
 streamlit run ui/app.py
 
 # 或使用批处理文件
 启动UI面板.bat
+
+# Python脚本启动
+python run_ui.py
 ```
 
-### 2.2 日报生成
+访问地址: `http://localhost:8501`
+
+### 2.2 日报生成与交易工作流
 
 ```bash
+# 每日盘前再平衡流水线 (08:30自动) — XGBoost + 风险平价 + FinBERT + 信号合成
+python daily_pre_market.py
+
+# 盘中实时决策调度器 (GLM5 AI)
+python auto_intraday_decision.py --once
+
 # 盘后综合报告
 python daily_trading_workflow.py --phase postmarket
 
-# 盘中实时监控
-python daily_trading_workflow.py --phase intraday
-
-# 三阶段工作流（盘前 → 盘中 → 盘后）
+# 三阶段工作流 (盘前 → 盘中 → 盘后)
 python daily_trading_workflow.py --phase all
 
 # 每日量化报告
 python 11_quant_daily_report.py
 ```
 
-### 2.3 AI再平衡
+### 2.3 AI再平衡与自动交易
 
 ```bash
-# 自动再平衡（含DeepSeek LLM决策）
+# 自动再平衡 (含AI决策)
 python auto_trading_system.py
 
-# AI量化再平衡引擎（替代Excel驱动）
+# AI量化再平衡引擎
 python -c "from quant_modules.ai_rebalancing_engine import run_ai_rebalance; print(run_ai_rebalance({}, {}))"
 
 # 简单再平衡
 python simple_rebalance.py
 ```
 
-### 2.4 四大理论分析
+### 2.4 AI Hedge Fund — 19位大师级AI分析师 ⭐ NEW v5.6
 
 ```bash
-# 运行四大理论引擎
+# 启动AI Hedge Fund (LangGraph编排19位分析师)
+python "量化策略系统 v5.6.py" --ai-hedge
+
+# 代码调用
+from quant_modules.ai_hedge_fund.orchestrator import run_ai_hedge_fund
+result = run_ai_hedge_fund(tickers=['600036', '000001'])
+```
+
+19位AI分析师涵盖: 价值投资、成长投资、宏观分析、技术分析、量化因子、风控等维度, LangGraph编排工作流, 最终生成综合投资决策。
+
+### 2.5 四大理论引擎
+
+```bash
+# 运行四大理论分析
 python -c "from quant_modules.decision_theories import run_full_theory_analysis; run_full_theory_analysis({})"
 ```
 
-### 2.5 期货期权信号系统 ⭐ NEW
+| 理论 | 核心思想 | 输出信号 |
+|------|----------|----------|
+| 索罗斯反身性 | 市场偏见 → 价格扭曲 → 趋势反转 | 反转信号 |
+| 瑞达利奥经济机器 | 债务周期 → 经济阶段 → 资产配置 | 配置信号 |
+| 第一性原理 | 基本面 → 内在价值 → 安全边际 | 价值信号 |
+| 巴菲特芒格 | 护城河 → 长期持有 → 复利增长 | 持有信号 |
+
+### 2.6 盘中AI决策 (GLM5) ⭐
 
 ```bash
-# 方法1: 独立运行信号生成器
+# GLM5 AI盘中实时决策
+python auto_intraday_decision.py              # 启动定时调度
+python auto_intraday_decision.py --once       # 只执行一次
+
+# CLI模式
+python "量化策略系统 v5.6.py" --ai-decision
+```
+
+### 2.7 期货期权信号系统 ⭐
+
+```bash
+# 独立运行信号生成器
 python signals/futures_options_signal.py
 
-# 方法2: 附加到综合日报
+# 附加到综合日报
 python append_futures_to_daily.py
 
-# 方法3: 完整集成流程
+# 完整集成流程
 python integrate_futures_options.py --append-to-report
 ```
 
-**功能说明:**
-- 宏观经济量化分析 (实体经济/宏观健康/市场情绪/商品周期)
-- 期货信号生成 (铁矿石/原油/黄金等)
-- 期权信号生成 (沪深300/上证50等ETF期权)
-- AI决策引擎 (置信度评估/仓位计算/风险管理)
-- 自动生成交易建议报告
+功能: 宏观经济量化分析 → 期货信号 (铁矿石/原油/黄金) → 期权信号 (沪深300/上证50ETF) → AI决策引擎 → 交易建议报告
 
-**输出:**
-- 独立报告: `signals/reports/期货期权决策_YYYY-MM-DD.md`
-- 综合日报: `每日报告归档/YYYY-MM-DD/综合日报_YYYYMMDD.txt` (已附加)
+### 2.8 盘前预测流水线 ⭐
 
-### 2.6 期货期权扫描
+```bash
+# 自动盘前计划 (XGBoost + 风险平价 + FinBERT + 信号合成)
+python daily_pre_market.py
+
+# 批处理启动
+自动盘前计划.bat
+```
+
+执行顺序: XGBoost 5日方向预测 → 风险平价回测 → FinBERT情感分析 → 三源信号合成 → 生成MD报告
+输出: `每日报告归档/YYYY-MM-DD/盘前再平衡报告.md`
+
+### 2.9 期货期权扫描
 
 ```bash
 # 期货期权套利机会扫描
 python -c "from quant_modules.futures_options_scanner import scan_all; scan_all()"
+
+# 期货期权AI自动交易员
+python ai_futures_auto_trader.py
 ```
 
-### 2.7 五年收益预测
+### 2.10 五年收益预测
 
 ```bash
-# 生成五年收益预测报告
 python 五年收益预测.py
 ```
 
-### 2.8 回测
+### 2.11 回测
 
 ```bash
 # 3年回测
@@ -129,9 +195,12 @@ python backtest_3year.py
 
 # 快速回测
 python fast_backtest.py
+
+# 综合回测与宏观周期分析
+python 综合回测与宏观周期分析.py
 ```
 
-### 2.9 其他常用命令
+### 2.12 其他常用命令
 
 ```bash
 # 持仓统计
@@ -149,42 +218,121 @@ python macro_analysis.py
 # 康波周期分析
 python kontratieff_cycle.py
 
-# 期货期权信号 (NEW)
-python signals/futures_options_signal.py
+# 统一启动器 (股票 + 期货期权 + 逆回购 + 风控)
+python unified_launcher.py
 ```
 
 ---
 
-## 三、目录结构
+## 三、CLI运行模式 (20个)
+
+```bash
+python "量化策略系统 v5.6.py" --live              # 实时监控
+python "量化策略系统 v5.6.py" --report            # 生成报告
+python "量化策略系统 v5.6.py" --rebalance         # Excel驱动再平衡
+python "量化策略系统 v5.6.py" --rebalance --sync-sl  # 同步止损止盈
+python "量化策略系统 v5.6.py" --risk              # 风险监控
+python "量化策略系统 v5.6.py" --check             # 系统健康检查
+python "量化策略系统 v5.6.py" --etf-flow          # ETF资金流向
+python "量化策略系统 v5.6.py" --portfolio-opt     # 投资组合优化
+python "量化策略系统 v5.6.py" --kommo-monitor     # 康波周期商品监控
+python "量化策略系统 v5.6.py" --commodity-fund    # 大宗商品基本面
+python "量化策略系统 v5.6.py" --train-model       # 时序预测训练
+python "量化策略系统 v5.6.py" --kondratiev        # 康波+十五五交叠
+python "量化策略系统 v5.6.py" --fifteen-five      # 十五五规划适配
+python "量化策略系统 v5.6.py" --social-security   # 社保基金ETF追踪
+python "量化策略系统 v5.6.py" --macro-analysis    # 宏观综合分析(一键三大)
+python "量化策略系统 v5.6.py" --daily --phase all # 三阶段工作流
+python "量化策略系统 v5.6.py" --backtest          # 回测验证
+python "量化策略系统 v5.6.py" --ai-decision       # GLM5 AI盘中实时决策 ⭐ v5.2
+python "量化策略系统 v5.6.py" --futures-options   # 期货期权扫描 ⭐ v5.5
+python "量化策略系统 v5.6.py" --ai-hedge          # AI Hedge Fund 19位分析师 ⭐ v5.6
+```
+
+---
+
+## 四、目录结构
 
 ```
 11_量化策略/
-├── quant_modules/                      # 核心量化模块
-│   ├── ai_rebalancing_engine.py        # AI量化再平衡引擎 ⭐
-│   ├── decision_theories.py            # 四大理论引擎 ⭐
-│   ├── futures_options_scanner.py      # 期货期权扫描器 ⭐
-│   ├── wind_mcp.py                     # Wind MCP CLI封装
-│   ├── data_layer.py                   # 缓存+连接器
-│   ├── core.py                         # 配置/异常/成本计算
+├── 量化策略系统 v5.6.py                # 主系统入口 (72.8KB, 20 CLI模式)
+│
+├── quant_modules/                      # 核心量化模块 ★
+│   ├── ai_hedge_fund/                  # AI Hedge Fund (19位AI分析师 + LangGraph) ⭐ v5.6
+│   ├── ai_rebalancing_engine.py        # AI量化再平衡引擎
+│   ├── decision_theories.py            # 四大理论引擎 (索罗斯/达利奥/第一性/巴菲特)
+│   ├── futures_options_scanner.py      # 期货期权扫描器
+│   ├── macro_decision_bridge.py        # 宏观决策桥接
+│   ├── macro_wind_adapter.py           # Wind宏观数据适配器
+│   ├── trading_agents_bridge.py        # 交易代理桥接
+│   ├── futures_opportunity_analyzer.py # 期货机会分析
+│   ├── wind_mcp.py                     # Wind MCP CLI封装 (P0)
+│   ├── data_layer.py                   # 缓存+多源连接器管理器
+│   ├── core.py                         # 配置/异常/策略注册/成本计算
 │   ├── prediction_bridge.py            # 预测信号桥接器
-│   └── dynamic_position.py             # 动态仓位管理
-├── signals/                            # 交易信号生成器 ⭐ NEW
-│   ├── futures_options_signal.py       # 期货期权AI信号生成器 ⭐
-│   ├── token_risk_factor.py            # Token风险因子
-│   ├── token_auto_capacity.py          # 自动容量因子
-│   ├── token_factor_combiner.py        # 因子组合器
-│   └── reports/                        # 信号报告目录
-│       └── 期货期权决策_YYYY-MM-DD.md
-├── engine/
+│   ├── dynamic_position.py             # 动态仓位管理
+│   └── cma_bridge.py                   # CMA桥接
+│
+├── engine/                             # 引擎层
 │   ├── data.py                         # 统一数据层
-│   ├── rebalance.py                    # 再平衡引擎
+│   ├── rebalance.py                    # 再平衡引擎 v4
 │   ├── managers.py                     # 组合优化/康波/ETF管理器
 │   ├── etf_flow.py                     # ETF资金流监控
 │   └── social_security.py              # 社保基金风格追踪
-├── ui/
-│   ├── app.py                          # Streamlit主入口
-│   ├── components/                     # UI组件
-│   └── pages/                          # 12个功能页面
+│
+├── signals/                            # 交易信号生成器 ⭐ v5.5+
+│   ├── futures_options_signal.py       # 期货期权AI信号生成器
+│   ├── token_risk_factor.py            # Token风险因子
+│   ├── token_auto_capacity.py          # 自动容量因子
+│   ├── token_factor_combiner.py        # 因子组合器
+│   └── reports/                        # 信号报告归档
+│
+├── model_train/                        # 模型训练与增强信号 ⭐ v5.6
+│   ├── xgboost_direction.py            # XGBoost 5日方向预测
+│   ├── risk_parity_backtest.py         # 风险平价回测
+│   ├── finbert_sentiment.py            # FinBERT金融情感分析
+│   ├── signal_composer.py              # 三源信号合成器
+│   ├── models/                         # 训练好的模型文件
+│   └── output/                         # 预测输出 (JSON/Parquet/CSV)
+│
+├── modes/                              # 运行模式调度 ⭐ v5.2+
+│   ├── __init__.py
+│   └── operations.py                   # 71KB, 所有run_*函数抽取
+│
+├── utils/                              # 工具模块 (17个文件)
+│   ├── kondratiev_cycle.py             # 康波周期分析
+│   ├── five_year_plan.py               # 十五五规划适配
+│   ├── social_security_etf.py          # 社保ETF追踪
+│   ├── glm5_client.py                  # GLM5客户端
+│   ├── glm5_decision_engine.py         # GLM5决策引擎
+│   ├── kronos_predictor.py             # Kronos K线预测器
+│   ├── qwen_financial_predictor.py     # Qwen金融预测器
+│   ├── local_llm.py                    # 本地LLM管理
+│   ├── intraday_decision.py            # 盘中决策
+│   ├── data_source_manager.py          # 多源自适应管理
+│   ├── logging_manager.py              # 统一日志
+│   ├── event_tracker.py                # 事件追踪
+│   ├── report_archiver.py              # 报告归档
+│   ├── console_encoding.py             # 控制台编码
+│   └── env_loader.py                   # 环境变量加载
+│
+├── models/                             # 训练好的ML模型
+│   ├── AI-ModelScope/Kronos-small/     # Kronos金融K线预测模型
+│   ├── NeoQuasar/Kronos-Tokenizer-base/# Kronos分词器
+│   └── *.pkl / *.pt                    # RF/XGBoost/PatchTST模型
+│
+├── Kronos/                             # Kronos金融预测开源项目 (第三方)
+├── Shadowbroker/                       # 全球威胁情报平台 (独立项目)
+│
+├── ui/                                 # Streamlit可视化面板
+│   ├── app.py                          # 主入口 (导航路由)
+│   ├── components/                     # 公共UI组件 (7个)
+│   │   ├── names.py                    # 共享标的名称映射
+│   │   ├── progress.py                 # 进度组件
+│   │   ├── report_viewer.py            # 报告浏览/预览
+│   │   ├── sidebar.py                  # 公共侧边栏
+│   │   └── system_status.py            # 模块状态卡片
+│   └── pages/                          # 15个功能页面
 │       ├── 01_🏠_系统概览.py
 │       ├── 02_📊_实时监控.py
 │       ├── 03_🔄_再平衡执行.py          # AI量化再平衡 ⭐
@@ -194,156 +342,119 @@ python signals/futures_options_signal.py
 │       ├── 07_🌊_康波周期分析.py
 │       ├── 08_🏛️_十五五规划.py
 │       ├── 09_🏦_社保基金追踪.py
-│       ├── 10_🔬_宏观综合分析.py
+│       ├── 10_🔬_宏观综合分析.py         # 一键三大分析
 │       ├── 11_💎_大宗商品监控.py
-│       └── 12_📝_报告管理.py
-├── utils/
-│   ├── kondratiev_cycle.py             # 康波周期分析
-│   ├── five_year_plan.py               # 十五五规划适配
-│   ├── social_security_etf.py          # 社保ETF追踪
-│   └── logging_manager.py              # 统一日志
-├── config/
-│   ├── settings.yaml                   # 全局参数配置
-│   └── positions.json                  # 实时持仓数据
-├── reports/                            # 生成的报告
-├── data/                               # 数据缓存
+│       ├── 12_📝_报告管理.py
+│       ├── 13_🤖_AI决策.py              # GLM5盘中AI决策 ⭐
+│       ├── 14_📡_期货期权信号.py        # 期货期权信号 ⭐
+│       └── 15_🏦_AI_Hedge_Fund.py       # AI Hedge Fund ⭐ v5.6
+│
+├── config/                             # 配置文件 (21个)
+│   ├── portfolio.yaml                  # 组合配置 (14标的4板块)
+│   ├── settings.yaml                   # 系统全局配置 (primary: wind, secondary: ifind)
+│   ├── positions.json                  # 实时持仓状态
+│   ├── price_history.jsonl             # 历史价格日志
+│   ├── stop_loss_rules_auto.yaml       # 止损止盈规则
+│   └── watchlist.yaml                  # 大炼化观察仓
+│
+├── 每日报告归档/YYYY-MM-DD/            # 日报归档
+├── reports/                            # 分析报告
+├── data/                               # 本地数据缓存
 ├── scripts/                            # 脚本工具
-├── append_futures_to_daily.py          # 快速附加期货期权信号 ⭐ NEW
-├── integrate_futures_options.py        # 完整集成脚本 ⭐ NEW
-└── 期货期权信号集成指南.md              # 使用文档 ⭐ NEW
+│   ├── generate_2026_plan.py
+│   └── portfolio_5year_forecast.py
+├── trade_logs/                         # 交易日志
+├── logs/                               # 系统日志
+├── .streamlit/config.toml              # 暗色主题配置
+│
+├── 启动UI面板.bat                       # Streamlit UI启动
+├── 启动量化系统.bat                     # 量化系统启动
+├── 启动全部模块.bat                     # 统一启动器
+├── 启动实时监控.bat                     # 实时监控
+├── 启动AI决策UI.bat                     # AI决策面板
+├── 自动盘前计划.bat                     # 每日盘前计划
+├── run_rebalance.bat                    # 简单再平衡
+├── start_futures_ai_trader.bat         # 期货AI交易员
+│
+├── README.md                           # ← 本文件
+├── CLAUDE.md                           # Claude Code指导
+├── AGENTS.md                           # Codex指导
+├── SECURITY.md                         # 安全策略
+└── run_ui.py                           # UI启动脚本
 ```
 
 ---
 
-## 四、核心模块
+## 五、核心模块
 
-### 4.1 AI量化再平衡引擎 ⭐
+### 5.1 AI Hedge Fund — 19位大师级分析师 ⭐ v5.6
+
+**文件**: `quant_modules/ai_hedge_fund/`
+
+19个AI分析师Agent, LangGraph编排工作流, 涵盖:
+- **价值投资**: 巴菲特、格雷厄姆、费雪风格
+- **成长投资**: 凯瑟琳·伍德、彼得·林奇风格
+- **宏观分析**: 达利奥、索罗斯、德鲁肯米勒风格
+- **技术分析**: 约翰·墨菲、威科夫风格
+- **量化因子**: 动量、波动率、质量等多因子
+- **风险管理**: 风险预算、压力测试、尾部风险
+- **最终决策**: 多分析师投票 + 置信度加权综合
+
+使用: `python "量化策略系统 v5.6.py" --ai-hedge`
+
+### 5.2 AI量化再平衡引擎
 
 **文件**: `quant_modules/ai_rebalancing_engine.py`
 
-**功能**:
-- 整合四大理论引擎信号
-- DeepSeek LLM智能决策
-- 动态仓位计算
-- 止损规则（按类别差异化）
-- 信号聚合与置信度评估
+整合四大理论引擎信号 + DeepSeek LLM智能决策 + 动态仓位计算 + 差异化止损
 
-**使用**:
-```python
-from quant_modules.ai_rebalancing_engine import run_ai_rebalance
+### 5.3 每日盘前再平衡流水线 ⭐
 
-result = run_ai_rebalance(positions, prices)
-print(f"交易信号: {result.signals}")
-print(f"LLM决策: {result.llm_decision}")
-```
+**文件**: `daily_pre_market.py`
 
-### 4.2 四大理论引擎 ⭐
+四步流水线: XGBoost 5日方向预测 → 风险平价回测 → FinBERT情感分析 → 三源信号合成 → 生成MD报告
 
-| 理论 | 核心思想 | 输出信号 |
-|------|----------|----------|
-| 索罗斯反身性 | 市场偏见 → 价格扭曲 → 趋势反转 | 反转信号 |
-| 瑞达利奥经济机器 | 债务周期 → 经济阶段 → 资产配置 | 配置信号 |
-| 第一性原理 | 基本面 → 内在价值 → 安全边际 | 价值信号 |
-| 巴菲特芒格 | 护城河 → 长期持有 → 复利增长 | 持有信号 |
+### 5.4 盘中AI决策调度器 ⭐ v5.2
 
-### 4.3 期货期权信号系统 ⭐ NEW
+**文件**: `auto_intraday_decision.py`
+
+GLM5 AI模型中交易时段定时调用, 生成实时交易决策信号。
+
+### 5.5 期货期权信号系统
 
 **文件**: `signals/futures_options_signal.py`
 
-**功能**:
-- 宏观经济量化分析 (实体经济/宏观健康/市场情绪/商品周期)
-- 期货信号生成 (铁矿石/原油/黄金等)
-- 期权信号生成 (沪深300/上证50等ETF期权)
-- AI决策引擎 (置信度评估/仓位计算/风险管理)
-- 自动生成交易建议报告
+数据流: 宏观经济量化 → 期货信号 (铁矿石/原油/黄金) → 期权信号 (ETF期权) → AI决策 → 交易建议
 
-**数据流**:
-```
-宏观经济量化系统 → 量化分析 → 信号生成 → AI决策 → 交易建议
-```
+### 5.6 数据获取 (P0-P5优先级链)
 
-**使用**:
-```python
-from signals.futures_options_signal import FuturesOptionsSignalGenerator
-
-generator = FuturesOptionsSignalGenerator()
-result = generator.run_full_pipeline()
-
-print(f"生成信号数: {len(result['signals'])}")
-print(f"AI建议数: {len(result['recommendations'])}")
-```
-
-**示例信号**:
-```
-【期货信号】2 个
-  [WARN] 铁矿石期货 (i): 做空 (置信度: 75%)
-  [OK] 原油期货 (sc): 持有/止盈 (置信度: 70%)
-
-【期权信号】1 个
-  [OK] 沪深300ETF期权 (510300): 买入看涨期权 (Call) (置信度: 80%)
-```
-
-### 4.4 期货期权扫描器
-
-| 功能 | 说明 |
-|------|------|
-| 期货行情快照 | 主力合约价格、涨跌幅、成交量 |
-| 期权扫描 | 隐含波动率、期权PCR、套利机会 |
-| 跨品种套利 | 螺纹钢-热卷、豆粕-菜粕、PTA-乙二醇等 |
-| AI分析 | DeepSeek V4 Pro衍生品策略建议 |
-
-### 4.5 数据获取（Wind MCP优先）
-
-| 优先级 | 数据源 | 覆盖 | 说明 |
+| 优先级 | 数据源 | 文件 | 覆盖 |
 |--------|--------|------|------|
-| 0 | Wind MCP | 100% | 主数据源，CLI调用 |
-| 1 | 新浪财经 | 备选 | 免费HTTP接口 |
-| 2 | yfinance | 兜底 | 国际品种 |
-| 3 | 模拟数据 | 最终保障 | 确保报告完整性 |
+| P0 | Wind MCP | `quant_modules/wind_mcp.py` | 主数据源, CLI调用 |
+| P1 | iFinD MCP | `ifind_client.py` | 强制回退, 同花顺 |
+| P2 | AKShare/efinance/tushare | 内联 | 免费回退层 |
+| P3 | 新浪财经 API | `sina_api_helper.py` | 免费实时行情 |
+| P4 | 本地缓存 (Parquet/JSON) | `quant_modules/data_layer.py` | 最近成功缓存 |
+| P5 | 预定义兜底价格 | `quant_modules/core.py` | 永不崩溃保障 |
+
+**强制规则**: Wind不可用时必须尝试iFinD, 不可直接跳到免费数据源。
 
 ---
 
-## 五、持仓配置（27只标的 + 期货期权）
+## 六、持仓配置
 
-### 5.1 权益组合（示例配置）
+### 6.1 权益组合 (14标的4板块)
 
-| 梯队 | 标的数 | 权重 |
-|------|--------|------|
-| 核心宽基ETF | 5 | 28% |
-| 科技成长个股 | 6 | 20% |
-| 高端制造/基建 | 5 | 20% |
-| 防御/红利 | 4 | 15% |
-| 商品/避险 | 1 | 5% |
-| 现金缓冲 | 1 | 8% |
+| 板块 | 权重 | 标的 |
+|------|------|------|
+| 高端制造(含算力) | 45% | 中际旭创/海光信息/北方华创/中芯国际/宁德时代/徐工机械 |
+| 顺周期 | 20% | 中国神华/南山铝业/宝钢股份 |
+| 资源 | 20% | 华安黄金ETF/藏格矿业 |
+| 防御 | 15% | 恒瑞医药/药明康德/科伦药业 |
 
-### 5.2 低风险理财（示例配置）
+### 6.2 期货期权信号 (动态生成)
 
-| 类型 | 年化收益 |
-|------|----------|
-| 国债逆回购 | 2.8% |
-
-### 5.3 期货期权信号系统
-
-**当前生成的信号** (2026-06-24):
-- 铁矿石期货: 做空 (置信度75%)
-- 原油期货: 持有/止盈 (置信度70%)
-- 沪深300ETF期权: 买入看涨 (置信度80%)
-
-**AI交易建议**:
-- 沪深300ETF期权 - 建议仓位4.00%
-- 铁矿石期货 - 建议仓位2.25%
-- 原油期货 - 建议仓位2.10%
-
----
-
-## 六、五年收益预测（示例）
-
-| 指标 | 参考数值 |
-|------|----------|
-| 年化收益率目标 | 10%-15% |
-| 权益组合年化目标 | 15%-20% |
-| 低风险理财年化 | 2.5%-3.5% |
-| 最大回撤控制 | ≤15% |
+当前支持: 铁矿石期货、原油期货、黄金期货 + 沪深300ETF期权、上证50ETF期权
 
 ---
 
@@ -362,86 +473,73 @@ print(f"AI建议数: {len(result['recommendations'])}")
 | 类别 | 止损线 |
 |------|--------|
 | 核心宽基ETF | -8% |
-| 科技成长个股 | -10%~-15% |
-| 高端制造 | -10%~-12% |
+| 科技成长个股 | -10% ~ -15% |
+| 高端制造 | -10% ~ -12% |
 | 防御/红利 | -8% |
-| 黄金ETF | -8%/-12% |
+| 黄金ETF | -8% / -12% |
 
 ---
 
-## 八、Streamlit监控面板
+## 八、Streamlit 监控面板
 
-启动命令：
-```bash
-streamlit run ui/app.py
-```
+启动: `streamlit run ui/app.py` (端口 8501)
 
-访问地址：
-- Local: http://localhost:8501
-- Network: http://192.168.0.105:8501
-
-### 功能页面
+15个功能页面, 分组导航:
 
 | 页面 | 功能 |
 |------|------|
-| 系统概览 | 持仓总览、收益统计、系统状态 |
-| 实时监控 | 盘中行情、异动提醒 |
-| 再平衡执行 | AI量化再平衡、交易信号 |
-| 投资组合优化 | 权重优化、风险分析 |
-| 风险监控 | 回撤监控、止损止盈 |
-| ETF资金流向 | 主力资金、板块轮动 |
-| 康波周期分析 | 长周期定位、资产配置 |
-| 十五五规划 | 政策主题、投资机会 |
-| 社保基金追踪 | 机构动向、风格漂移 |
-| 宏观综合分析 | 经济指标、政策解读 |
-| 大宗商品监控 | 商品期货、套利机会 |
-| 报告管理 | 历史报告、PDF导出 |
+| 系统概览 | 持仓总览、收益统计、16模块状态、连接器状态 |
+| 实时监控 | 盘中行情、异动提醒、净值曲线、标的搜索 |
+| 再平衡执行 | AI量化再平衡、Excel驱动买卖计划、止损止盈 |
+| 投资组合优化 | 5策略对比 (等权/风险平价/风险配比/因子/自定义) |
+| 风险监控 | 回撤监控、止损止盈状态、风险权重分布 |
+| ETF资金流向 | 24ETF监控、国家队信号、风格轮动 |
+| 康波周期分析 | 长周期定位、行业配置、商品信号 |
+| 十五五规划 | 7大战略方向、持仓适配评级、权重调整 |
+| 社保基金追踪 | 4大风格、ETF映射、资金流增强 |
+| 宏观综合分析 | 一键三大分析 (康波+十五五+社保ETF) |
+| 大宗商品监控 | 商品价格/趋势/预警、宏观指标 |
+| 报告管理 | 浏览/搜索/预览/下载历史报告 |
+| AI决策 | GLM5盘中AI实时决策面板 |
+| 期货期权信号 | 期货期权信号生成与监控 |
+| AI Hedge Fund | 19位AI分析师联合决策 ⭐ v5.6 |
+
+暗色主题: `primaryColor: #1890FF`, `backgroundColor: #0d1117` (GitHub风格)
 
 ---
 
-## 九、版本历史
+## 九、数据源优先级
+
+全局统一标准: **Wind MCP (P0) → iFinD MCP (P1) → 免费数据源 (P2) → 新浪API (P3) → 本地缓存 (P4) → 兜底价格 (P5)**
+
+所有报告/采集器/交易模块必须遵循此优先级链, 优雅降级, 不因上层数据源不可用而崩溃。`config/settings.yaml` 为全局配置源。
+
+---
+
+## 十、版本历史
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| v5.6 | 2026-06-24 | 期货期权信号系统上线 ⭐ NEW |
+| v5.6 | 2026-06-24 | AI Hedge Fund (19位分析师+LangGraph) ⭐; 期货期权信号系统上线 |
 | v5.5 | 2026-06-21 | AI量化再平衡引擎、四大理论引擎、期货期权扫描器 |
-| v5.2 | 2026-06-18 | DeepSeek V4 Pro LLM决策引擎接入 |
-| v5.1 | 2026-06 | 康波+十五五+社保ETF三大分析模块 |
+| v5.2 | 2026-06-18 | DeepSeek V4 Pro LLM决策引擎接入; GLM5盘中AI决策; modes/模块化 |
+| v5.1 | 2026-06 | 康波+十五五+社保ETF三大分析模块; Streamlit UI暗色主题 |
 
 ---
 
-## 十、相关文件
+## 十一、相关文档
 
 | 文件 | 说明 |
 |------|------|
-| `2026年交易计划_优化版_v2.md` | 持仓配置详细说明 |
+| `CLAUDE.md` | Claude Code项目指导 |
+| `AGENTS.md` | Codex/Agent项目指导 |
 | `CAREER_INVESTOR_GUIDE.md` | 职业投资者指南 |
-| `LSEG_INTEGRATION_GUIDE.md` | LSEG数据集成指南 |
-| `期货期权信号集成指南.md` | 期货期权信号系统使用文档 ⭐ NEW |
-
----
-
-## 十一、期货期权信号系统文档
-
-详细使用说明请参考: [`期货期权信号集成指南.md`](期货期权信号集成指南.md)
-
-**核心功能**:
-- 宏观经济量化分析
-- 期货/期权交易信号生成
-- AI决策引擎
-- 风险管理方案
-
-**快速开始**:
-```bash
-# 独立运行
-python signals/futures_options_signal.py
-
-# 附加到综合日报
-python append_futures_to_daily.py
-```
+| `期货期权信号集成指南.md` | 期货期权信号系统使用文档 |
+| `GLM5_自动决策_使用指南.md` | GLM5 AI决策使用指南 |
+| `SECURITY.md` | 安全策略 |
 
 ---
 
 ## 十二、License
 
-MIT License - 仅供学习研究使用，不构成投资建议。
+MIT License — 仅供学习研究使用, 不构成投资建议。所有交易决策请咨询持牌金融顾问。

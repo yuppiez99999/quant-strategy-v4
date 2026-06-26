@@ -44,6 +44,9 @@ pg = st.navigation({
         st.Page("pages/09_🏦_社保基金追踪.py", title="社保基金追踪"),
         st.Page("pages/10_🔬_宏观综合分析.py", title="宏观综合分析"),
     ],
+    "🤖 AI Hedge Fund": [
+        st.Page("pages/13_🤖_AI分析师.py", title="AI分析师"),
+    ],
 })
 
 pg.run()

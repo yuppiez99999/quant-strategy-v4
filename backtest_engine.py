@@ -63,6 +63,8 @@ class PortfolioEngine:
                 weights[code] = self.positions[code]['shares'] * prices[code] / total
             else:
                 weights[code] = 0
+        # 显式加入 CASH 权重,便于再平衡引擎对账
+        weights['CASH'] = self.cash / total if total > 0 else 0
         return weights
 
     def apply_trade(self, code: str, side: str, shares: int, price: float, commission_rate: float = 0.0005):
@@ -177,11 +179,18 @@ class BacktestEngine:
             return 1.0
 
     def _get_fixed_weights(self):
-        """返回基础目标权重"""
+        """返回基础目标权重(含 CASH 占位)"""
         weights = {}
         for asset in self.portfolio_config['assets']:
             weights[asset['code']] = asset['target_weight']
         return weights
+
+    def _get_cash_target_weight(self) -> float:
+        """读取 portfolio.yaml 中 CASH 的 target_weight(默认0)"""
+        for asset in self.portfolio_config.get('assets', []):
+            if asset.get('code') == 'CASH':
+                return float(asset.get('target_weight', 0))
+        return 0.0
     
     def _calculate_volatility(self, klines: Dict[str, pd.DataFrame], code: str, lookback: int = 20):
         """计算资产最近N个交易日的波动率"""
@@ -198,55 +207,120 @@ class BacktestEngine:
         return max(0.001, volatility)  # 避免除零
     
     def _get_dynamic_weights(self, klines: Dict[str, pd.DataFrame], lookback: int = 20):
-        """基于波动率计算动态权重 - 低波动率资产获得更高权重"""
+        """基于波动率计算动态权重 - 低波动率资产获得更高权重(含 CASH)"""
         base_weights = self._get_fixed_weights()
+        cash_target = self._get_cash_target_weight()
         volatilities = {}
-        
-        # 计算每个资产的波动率
+
+        # 计算每个非 CASH 资产的波动率
         for code in base_weights:
+            if code == 'CASH':
+                continue
             if base_weights[code] > 0 and code in klines and not klines[code].empty:
                 vol = self._calculate_volatility(klines, code, lookback)
                 volatilities[code] = vol
-        
-        # 反向波动率加权：低波动率资产权重更高
+
+        # 反向波动率加权:低波动率资产权重更高
         if not volatilities:
+            base_weights['CASH'] = cash_target
             return base_weights
-        
-        # 波动率倒数加权
+
+        # 风险资产部分按波动率倒数加权(归一化到 1 - cash_target)
+        equity_total_target = max(0.0, 1.0 - cash_target)
         inv_vol_weights = {code: 1.0 / (vol + 0.0001) for code, vol in volatilities.items()}
         inv_vol_sum = sum(inv_vol_weights.values())
-        
-        # 混合基础权重和波动率权重：60%基础权重 + 40%波动率加权
+
+        # 混合基础权重和波动率权重:60%基础权重 + 40%波动率加权
         dynamic_weights = {}
         total_w = 0
-        
+        equity_w = 0  # 只算非 CASH 部分
+
         for code in base_weights:
+            if code == 'CASH':
+                dynamic_weights[code] = cash_target
+                total_w += cash_target
+                continue
             if base_weights[code] > 0:
                 if code in volatilities:
                     base_w = base_weights[code]
                     vol_w = inv_vol_weights[code] / inv_vol_sum * 0.4
-                    # 权重混合
-                    dynamic_weights[code] = base_w * 0.6 + vol_w
+                    mixed = base_w * 0.6 + vol_w
+                    dynamic_weights[code] = mixed
                 else:
                     # 无数据的资产权重减半
                     dynamic_weights[code] = base_weights[code] * 0.3
             else:
                 dynamic_weights[code] = 0
             total_w += dynamic_weights[code]
-        
-        # 归一化权重
-        if total_w > 0:
-            dynamic_weights = {code: w / total_w for code, w in dynamic_weights.items()}
-        
+            equity_w += dynamic_weights[code]
+
+        # 把风险资产部分缩放到 (1 - cash_target)
+        # 注意:只除以 equity_w,不能把 cash_target 算进分母,否则仓位会被砍
+        if equity_w > 0 and equity_total_target > 0:
+            scale = equity_total_target / equity_w
+            for code in dynamic_weights:
+                if code != 'CASH':
+                    dynamic_weights[code] *= scale
+        dynamic_weights['CASH'] = cash_target
+
         return dynamic_weights
 
-    def _execute_rebalance(self, target_weights: Dict, prices: Dict, date, position_scale: float = 1.0):
-        """自适应再平衡：偏差驱动 + 更高的再平衡阈值减少交易成本"""
+    def _execute_rebalance(self, target_weights: Dict, prices: Dict, date, position_scale: float = 1.0,
+                          allow_cash_rebalance: bool = False):
+        """自适应再平衡:偏差驱动 + 更高的再平衡阈值减少交易成本
+        allow_cash_rebalance: 仅首日允许一次性 CASH 调仓,避免频繁交易
+        """
+        current_weights = self.portfolio.get_current_weights(prices)
+        total_value = self.portfolio.get_total_value(prices)
+
+        # ── 1. CASH 偏离处理(仅首日一次性,释放多余现金到目标比例) ──
+        if allow_cash_rebalance:
+            cash_target = target_weights.get('CASH', self._get_cash_target_weight())
+            current_cash_weight = current_weights.get('CASH', 0)
+            cash_weight_diff = current_cash_weight - cash_target
+            cash_threshold = 0.02  # CASH 偏离 2% 才触发
+
+            if abs(cash_weight_diff) > cash_threshold and total_value > 0:
+                cash_amount_diff = cash_weight_diff * total_value
+                if cash_amount_diff > 0:
+                    # 现金多余:按目标权重比例买入各资产
+                    buy_total = 0
+                    for code, target_w in target_weights.items():
+                        if code == 'CASH' or target_w <= 0 or code not in prices:
+                            continue
+                        current_mv = self.portfolio.positions.get(code, {}).get('shares', 0) * prices[code]
+                        target_mv = target_w * total_value
+                        if target_mv - current_mv > 0:
+                            buy_total += (target_mv - current_mv)
+                    if buy_total > 0 and self.portfolio.cash > 0:
+                        scale = min(1.0, (self.portfolio.cash * 0.98) / buy_total)
+                        for code, target_w in target_weights.items():
+                            if code == 'CASH' or target_w <= 0 or code not in prices:
+                                continue
+                            current_mv = self.portfolio.positions.get(code, {}).get('shares', 0) * prices[code]
+                            target_mv = target_w * total_value
+                            code_diff = target_mv - current_mv
+                            if code_diff <= 0:
+                                continue
+                            buy_amount = code_diff * scale
+                            price = prices[code]
+                            shares = int(buy_amount / price / 100) * 100
+                            if shares > 0:
+                                success, trade_cost = self.portfolio.apply_trade(code, 'buy', shares, price)
+                                if success:
+                                    self.trades.append({
+                                        'date': str(date), 'code': code, 'side': 'buy',
+                                        'shares': shares, 'price': price, 'amount': shares * price,
+                                        'trade_cost': trade_cost, 'weight_drift': abs(cash_weight_diff),
+                                        'reason': 'INITIAL_CASH_REBALANCE'
+                                    })
+
+        # ── 2. 单资产权重调仓(原有逻辑) ──
         current_weights = self.portfolio.get_current_weights(prices)
         total_value = self.portfolio.get_total_value(prices)
 
         for code, target_w in target_weights.items():
-            if target_w <= 0:
+            if code == 'CASH' or target_w <= 0:
                 continue
             if code not in prices:
                 continue
@@ -255,7 +329,6 @@ class BacktestEngine:
             current_w = current_weights.get(code, 0)
             diff = adjusted_target - current_w
 
-            # 标准再平衡阈值：2.5% 的权重偏差才触发
             if abs(diff) > 0.025:
                 price = prices[code]
                 amount = abs(diff) * total_value
@@ -312,15 +385,18 @@ class BacktestEngine:
                 # 检查权重偏差是否超过5%（严格触发）
                 current_weights = self.portfolio.get_current_weights(prices)
                 dynamic_weights = self._get_dynamic_weights(klines, lookback=20)
-                max_drift = max(abs(current_weights.get(code, 0) - dynamic_weights.get(code, 0)) 
+                max_drift = max(abs(current_weights.get(code, 0) - dynamic_weights.get(code, 0))
                                for code in dynamic_weights)
                 if max_drift > 0.05:
                     should_rebalance = True
-            
+
             if should_rebalance:
                 # 使用动态权重而非固定权重
                 target_weights = self._get_dynamic_weights(klines, lookback=20)
-                self._execute_rebalance(target_weights, prices, date, position_scale)
+                # 仅首日允许一次性 CASH 调仓,后续不再触发
+                allow_cash = (last_rebalance is None)
+                self._execute_rebalance(target_weights, prices, date, position_scale,
+                                       allow_cash_rebalance=allow_cash)
                 last_rebalance = date
 
             self.equity_curve.append({

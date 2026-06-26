@@ -1098,12 +1098,15 @@ def run_commodity_fundamentals(args):
 
 
 def run_model_training(args):
-    """时序预测模型训练模式 - Transformer模型"""
-    print("\n🤖 时序预测模型训练")
+    """时序预测模型训练模式 — PatchTST (CPU基线版)"""
+    print("\n" + "=" * 70)
+    print("  PatchTST 时序预测模型训练 — CPU 基线版本")
+    print("  参考: Nie et al., ICLR 2023, 'A Time Series is Worth 64 Words'")
     print("=" * 70)
 
-    progress = ProgressIndicator("模型训练", 4)
+    progress = ProgressIndicator("PatchTST 训练", 5)
 
+    # 1. 检查依赖
     progress.update(1, "检查依赖库...")
     missing = []
     for pkg in ('torch', 'sklearn', 'pandas', 'numpy'):
@@ -1117,32 +1120,69 @@ def run_model_training(args):
         print(f"\n请安装: pip install {' '.join(missing)}")
         return None
 
-    progress.update(2, "加载Transformer模型骨架...")
+    # 2. 导入 PatchTST 训练模块
+    progress.update(2, "加载 PatchTST 模型定义...")
     try:
-        # 尝试导入未命名.py中的模型训练功能
-        sys.path.insert(0, os.path.join(BASE_DIR, '..', '03_投研与策略生成'))
-        from 未命名 import create_model, train, DATA_PATH, MODEL_PATH
-
-        # 检查数据文件是否存在
-        if not DATA_PATH.exists():
-            progress.complete(f"❌ 数据文件不存在: {DATA_PATH}")
-            print(f"\n请修改 DATA_PATH 为实际CSV数据路径")
-            print(f"数据文件必须包含列: close, volume, inventory_qhd, power_plant_consumption, temperature, precipitation")
-            return None
-
-        progress.update(3, "开始训练模型...")
-        model, scaler = train(data_path=DATA_PATH, model_path=MODEL_PATH)
-
-        progress.update(4, "保存模型...")
-        print(f"\n✅ 模型已保存到: {MODEL_PATH}")
-        progress.complete("✅ 模型训练完成")
-
-        return model, scaler
-
-    except Exception as e:
-        progress.complete(f"❌ 模型训练失败: {e}")
-        logger.error(f"训练失败: {e}")
+        sys.path.insert(0, BASE_DIR)
+        from patchtst_trainer import train_patchtst
+    except ImportError as e:
+        progress.complete(f"❌ 导入失败: {e}")
+        logger.error(f"PatchTST 导入失败: {e}")
         return None
+
+    # 3. 数据准备
+    progress.update(3, "扫描数据文件...")
+    data_dir = os.path.join(BASE_DIR, 'data', 'cache')
+    if not os.path.isdir(data_dir):
+        progress.complete(f"❌ 数据目录不存在: {data_dir}")
+        return None
+
+    parquet_files = [f for f in os.listdir(data_dir)
+                     if f.startswith('kline_') and f.endswith('.parquet')]
+    if not parquet_files:
+        progress.complete(f"❌ 在 {data_dir} 中未找到 kline_*_daily.parquet")
+        print("\n请先运行数据采集获取历史数据 (--live 或 --daily)")
+        return None
+
+    codes = sorted(set(f.replace('kline_', '').replace('_daily.parquet', '')
+                       for f in parquet_files))
+    print(f"\n[数据] 发现 {len(codes)} 个标的: {', '.join(codes[:8])}"
+          f"{'...' if len(codes) > 8 else ''}")
+
+    # 4. 训练配置
+    # 支持自定义参数: --lr 0.001 --epochs 50 --mode classify
+    config_overrides = {
+        'training': {
+            'epochs': getattr(args, 'epochs', 50),
+            'learning_rate': getattr(args, 'lr', 1e-3),
+        },
+    }
+    mode = getattr(args, 'mode', None)
+    if mode:
+        config_overrides['model'] = {'mode': mode}
+
+    # 5. 训练
+    progress.update(4, "训练 PatchTST + LSTM 基线对比...")
+    try:
+        train_lstm = not getattr(args, 'no_lstm', False)
+        result = train_patchtst(
+            data_dir=data_dir,
+            codes=codes,
+            config_overrides=config_overrides,
+            train_lstm=train_lstm,
+        )
+    except Exception as e:
+        progress.complete(f"❌ 训练失败: {e}")
+        logger.error(f"训练异常: {e}", exc_info=True)
+        return None
+
+    progress.update(5, "完成")
+    progress.complete("✅ PatchTST 训练完成")
+
+    print(f"\n📁 模型文件: {result['model_path']}")
+    print(f"📁 训练日志: models/logs/")
+
+    return result
 
 
 # ============================================================
@@ -1612,6 +1652,13 @@ def main():
     parser.add_argument('--no-ai', action='store_true', help='禁用AI分析模块')
     parser.add_argument('--output', '-o', default=None, help='输出报告文件名')
     parser.add_argument('--sync-sl', action='store_true', help='同步止损止盈规则')
+
+    # 模型训练选项 (配合 --train-model)
+    parser.add_argument('--epochs', type=int, default=50, help='训练轮数 (配合 --train-model)')
+    parser.add_argument('--lr', type=float, default=1e-3, help='学习率 (配合 --train-model)')
+    parser.add_argument('--mode', choices=['classify', 'regress', 'both'],
+                        default='classify', help='模型模式 (配合 --train-model)')
+    parser.add_argument('--no-lstm', action='store_true', help='跳过 LSTM 基线对比 (配合 --train-model)')
 
     # 假设验证选项
     parser.add_argument('--list', action='store_true', help='列出研究假设')
