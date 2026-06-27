@@ -936,6 +936,52 @@ python daily_runner.py --no-trendcast
 | 看跌 + 高置信度 | 下跌概率 > 60% | 权重减少 |
 | 中立 / 低置信度 | 概率 ≤ 60% | 维持原权重 |
 
+### 6.6 盘中决策系统 ⭐
+
+**文件**: `auto_intraday_decision.py` + `utils/intraday_decision.py`
+
+**功能**:
+- 交易时段定时调度（09:35, 10:35, 11:25, 13:05, 14:05, 14:50）
+- 实时持仓数据获取
+- GLM-5 AI 驱动交易决策生成
+- 风险预警实时监控
+- 自动生成决策报告
+
+**决策时间点**:
+| 时间 | 说明 |
+|------|------|
+| 09:35 | 开盘后5分钟 |
+| 10:35 | 上午盘中 |
+| 11:25 | 上午收盘前 |
+| 13:05 | 午后开盘 |
+| 14:05 | 下午盘中 |
+| 14:50 | 收盘前10分钟 |
+
+**LLM 配置**:
+- 决策引擎: `GLM5DecisionEngine`
+- API 模式: `doubao-speed-32k` (豆包Speed)
+- 检查间隔: 5分钟
+- 最小置信度: 0.6
+
+**使用**:
+```bash
+# 启动定时调度（持续运行）
+python auto_intraday_decision.py
+
+# 只执行一次
+python auto_intraday_decision.py --once
+
+# 测试模式（不调用API）
+python auto_intraday_decision.py --test
+```
+
+**核心类**:
+| 类名 | 功能 |
+|------|------|
+| `IntradayDecisionMonitor` | 盘中决策监控器 |
+| `GLM5DecisionEngine` | GLM-5 决策引擎 |
+| `GLM5Client` | GLM-5 API 客户端 |
+
 ### 6.7 数据获取（优先级链）
 
 | 优先级 | 数据源 | 覆盖 | 说明 |
