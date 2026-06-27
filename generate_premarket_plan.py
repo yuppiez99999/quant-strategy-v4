@@ -1003,6 +1003,9 @@ class PremarketPlanReportGenerator:
         # 2. ETF资金流向
         lines.append(self._generate_etf_flow_section(etf_flow))
 
+        # 2.5 期货期权市场扫描
+        lines.append(self._generate_futures_options_section())
+
         # 3. 动量扫描
         lines.append(self._generate_momentum_section(momentum))
 
@@ -1019,7 +1022,7 @@ class PremarketPlanReportGenerator:
         lines.append("---")
         lines.append("")
         lines.append(f"*本计划由量化策略系统 v5.0 盘前自动生成（综合当日 {len(self.data_sources)} 份报告）*")
-        lines.append(f"*涉及报告: 康波周期分析、十五五规划适配、社保基金ETF追踪、综合日报、动力煤预测、K线形态扫描*")
+        lines.append(f"*涉及报告: 康波周期分析、十五五规划适配、社保基金ETF追踪、综合日报、动力煤预测、K线形态扫描、期货期权市场扫描*")
         lines.append(f"*生成时间: {now.strftime('%Y-%m-%d %H:%M:%S')}*")
 
         return "\n".join(lines)
@@ -1035,6 +1038,7 @@ class PremarketPlanReportGenerator:
                     "social_security": "社保基金ETF追踪",
                     "coal": "动力煤",
                     "kline": "K线形态",
+                    "futures_options": "期货期权扫描",
                 }
                 sources.append(names.get(key, key))
         return "、".join(sources) if sources else "默认配置 (无报告数据)"
@@ -1131,6 +1135,103 @@ class PremarketPlanReportGenerator:
             section_lines.append(f"  {icon} {cat}: {flow:+.1f}亿")
 
         section_lines.append("")
+        return "\n".join(section_lines)
+
+    def _generate_futures_options_section(self) -> str:
+        section_lines = []
+        section_lines.append("## 📈 期货期权市场扫描")
+        section_lines.append("")
+
+        futures_options = self.data_sources.get("futures_options", {})
+
+        if not futures_options.get("has_data"):
+            section_lines.append("> 期货期权扫描数据不可用")
+            section_lines.append("")
+            return "\n".join(section_lines)
+
+        scan_result = futures_options.get("scan_result", {})
+
+        # 期货市场扫描 — FuturesQuote dataclass
+        futures_data = scan_result.get("futures", {})
+        if futures_data:
+            section_lines.append("### 🛢️ 期货市场行情")
+            section_lines.append("")
+            section_lines.append("| 品种 | 代码 | 价格 | 涨跌 | 成交量(万手) |")
+            section_lines.append("|------|------|------|------|-------------|")
+            for name, quote in list(futures_data.items())[:6]:
+                code = getattr(quote, 'symbol', '')
+                price = getattr(quote, 'price', 0)
+                change_pct = getattr(quote, 'change_pct', 0)
+                volume = getattr(quote, 'volume', 0)
+                price_str = f"{price:.2f}" if price > 0 else "—"
+                change_str = f"{change_pct:+.2f}%" if change_pct != 0 else "—"
+                volume_str = f"{volume:.0f}" if volume > 0 else "—"
+                section_lines.append(f"| {name} | {code} | {price_str} | {change_str} | {volume_str} |")
+            section_lines.append("")
+
+        # 跨期套利机会 — 字典列表
+        calendar_spreads = scan_result.get("calendar_spreads", [])
+        if calendar_spreads:
+            section_lines.append("### 🔄 跨期套利机会")
+            section_lines.append("")
+            section_lines.append("| 品种 | 近月合约 | 远月合约 | 价差 | Z-score | 信号 |")
+            section_lines.append("|------|---------|---------|------|---------|------|")
+            for spread in calendar_spreads[:4]:
+                name = spread.get('name', '')
+                near_month = spread.get('near_month', '')
+                far_month = spread.get('far_month', '')
+                spread_value = spread.get('spread', 0)
+                z_score = spread.get('z_score', 0)
+                signal = spread.get('signal', 'HOLD')
+                spread_str = f"{spread_value:+.2f}" if spread_value != 0 else "—"
+                z_str = f"{z_score:+.2f}" if z_score != 0 else "—"
+                section_lines.append(f"| {name} | {near_month} | {far_month} | {spread_str} | {z_str} | {signal} |")
+            section_lines.append("")
+
+        # 套利信号汇总 — ArbitrageSignal dataclass
+        arbitrage_signals = scan_result.get("arbitrage_signals", [])
+        if arbitrage_signals:
+            section_lines.append("### 🎯 套利信号汇总")
+            section_lines.append("")
+            active_signals = [s for s in arbitrage_signals if getattr(s, 'signal', 'HOLD') != 'HOLD']
+            if active_signals:
+                for sig in active_signals[:5]:
+                    sig_signal = getattr(sig, 'signal', '')
+                    sig_summary = getattr(sig, 'summary', '') or getattr(sig, 'description', '')
+                    section_lines.append(f"- **{sig_signal}**: {sig_summary}")
+            else:
+                section_lines.append("> 当前无显著套利信号")
+            section_lines.append("")
+
+        # 期权市场扫描 — OptionsSnapshot dataclass
+        options_data = scan_result.get("options", {})
+        if options_data:
+            section_lines.append("### 🎲 期权市场扫描")
+            section_lines.append("")
+            section_lines.append("| 标的 | ATM隐含波动率 | 看涨/看跌比 | 看跌/看涨比 |")
+            section_lines.append("|------|-------------|------------|------------|")
+            for underlying, snapshot in list(options_data.items())[:3]:
+                atm_iv = getattr(snapshot, 'atm_iv', 0)
+                cpr = getattr(snapshot, 'call_put_ratio', 0)
+                pcr = getattr(snapshot, 'put_call_ratio', 0)
+                iv_str = f"{atm_iv:.1%}" if atm_iv > 0 else "—"
+                cpr_str = f"{cpr:.2f}" if cpr > 0 else "—"
+                pcr_str = f"{pcr:.2f}" if pcr > 0 else "—"
+                section_lines.append(f"| {underlying} | {iv_str} | {cpr_str} | {pcr_str} |")
+            section_lines.append("")
+
+        # AI分析摘要
+        deepseek_analysis = scan_result.get("deepseek_analysis", "")
+        if deepseek_analysis:
+            section_lines.append("### 💡 AI分析摘要")
+            section_lines.append("")
+            if isinstance(deepseek_analysis, dict):
+                analysis_text = deepseek_analysis.get('summary', '') or str(deepseek_analysis)
+            else:
+                analysis_text = str(deepseek_analysis)
+            section_lines.append(f"> {analysis_text[:200]}...")
+            section_lines.append("")
+
         return "\n".join(section_lines)
 
     def _generate_momentum_section(self, momentum: List[Dict]) -> str:
@@ -1364,6 +1465,25 @@ def main():
     social_data = social_extractor.extract()
     print(f"风格配置: {len(social_data.get('styles', []))} 项 | ETF映射: {len(social_data.get('etf_mapping', []))} 项")
 
+    # [新增] 期货期权扫描
+    print("[5/4] 期货期权市场扫描...", end=" ")
+    futures_options_data = {}
+    try:
+        from quant_modules.futures_options_scanner import run_full_scan, format_scan_to_markdown
+        scan_result = run_full_scan(use_wind=True, use_deepseek=True)
+        futures_options_data = {
+            "has_data": True,
+            "futures_count": len(scan_result.get('futures', {})),
+            "arbitrage_signals": len([s for s in scan_result.get('arbitrage_signals', []) if s.signal != 'HOLD']),
+            "options_count": len(scan_result.get('options', {})),
+            "scan_result": scan_result,
+            "markdown": format_scan_to_markdown(scan_result),
+        }
+        print(f"期货 {futures_options_data['futures_count']} 项 | 套利信号 {futures_options_data['arbitrage_signals']} 个 | 期权 {futures_options_data['options_count']} 项")
+    except Exception as e:
+        print(f"期货期权扫描失败: {e}")
+        futures_options_data = {"has_data": False}
+
     # 辅助报告
     coal_extractor = CoalReportExtractor(date_dir, today_str, today_short)
     coal_data = coal_extractor.extract()
@@ -1383,6 +1503,7 @@ def main():
         "social_security": social_data,
         "coal": coal_data,
         "kline": kline_data,
+        "futures_options": futures_options_data,
     }
 
     print(f"\n[综合] 有效数据源: {sum(1 for d in all_data.values() if d.get('has_data'))} / {len(all_data)}")

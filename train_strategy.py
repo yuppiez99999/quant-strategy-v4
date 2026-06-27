@@ -59,7 +59,7 @@ class StrategyTrainer:
         self.dates = sorted(set(self.df['日期']))
         print(f"[DATA] 准备完成, 共 {len(self.dates)} 个交易日")
     
-    def backtest(self, initial_capital=1000000, rebalance_threshold=5, rebalance_interval=5):
+    def backtest(self, initial_capital=1000000, rebalance_threshold=10, rebalance_interval=15):
         print("\n[START] 开始回测...")
         
         portfolio_value = initial_capital
@@ -260,12 +260,16 @@ class StrategyTrainer:
                     
                     # 如果索引是DatetimeIndex,转为列
                     if isinstance(df.index, pd.DatetimeIndex):
-                        df = df.reset_index()
-                        # 索引名称可能是'date'或None
-                        if df.columns[0] == 'date':
-                            df.rename(columns={'date': '日期'}, inplace=True)
-                        elif df.columns[0] == 'index':
-                            df.rename(columns={'index': '日期'}, inplace=True)
+                        # 如果已经有日期列(来自_DATE映射)，直接丢弃index
+                        if '日期' in df.columns:
+                            df = df.reset_index(drop=True)
+                        else:
+                            df = df.reset_index()
+                            # 索引名称可能是'date'或None
+                            if df.columns[0] == 'date':
+                                df.rename(columns={'date': '日期'}, inplace=True)
+                            elif df.columns[0] == 'index':
+                                df.rename(columns={'index': '日期'}, inplace=True)
                     
                     if '日期' in df.columns and ('收盘价' in df.columns or 'close' in df.columns):
                         if '收盘价' not in df.columns and 'close' in df.columns:
@@ -303,7 +307,7 @@ class StrategyTrainer:
         for code in self.codes:
             if code == 'CASH':
                 continue
-            prices = self.df[self.df['code'] == code][['日期', '收盘价']].set_index('日期')
+            prices = self.df[self.df['code'] == code][['日期', '收盘价']].drop_duplicates(subset='日期').set_index('日期')
             if len(prices) > 0:
                 prices.columns = ['close']
                 prices['return'] = prices['close'].pct_change().fillna(0)

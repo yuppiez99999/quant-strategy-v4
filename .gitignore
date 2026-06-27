@@ -31,13 +31,14 @@ data/positions.json
 config/price_history.jsonl
 config/price_*.jsonl
 data/pnl_*.json
-data/yizhao/
+data/yizhao/                    # 原始数据（禁止上传）
 data/*_pnl_*.json
 data/*_positions_*.json
 data/*_account_*.json
 data/*_balance_*.json
 data/yizhao_subset.jsonl
 data/yizhao/stats.json
+# data/yizhao_filtered/           # 过滤后的训练数据（可上传，已移除忽略规则）
 
 # ── 3. 报告与日志（避免泄漏交易细节） ───────────────
 reports/
@@ -57,12 +58,8 @@ daily_report.txt
 !example_*.xlsx
 !sample_*.xlsx
 
-# ── 5. 模型与大文件 ─────────────────────────────────
-models/
-models/*.pth
-models/*.pt
-models/*.bin
-models/*.onnx
+# ── 5. 模型与大文件（GitHub免费额度限制，不上传） ────────────────────
+models/                            # 训练好的模型（不上传，体积过大）
 *.pth
 *.pt
 *.bin

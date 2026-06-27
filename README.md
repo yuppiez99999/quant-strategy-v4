@@ -1,8 +1,8 @@
-﻿# 量化策略系统 v5.7
+# 量化策略系统 v5.7
 
 > **AI驱动的多策略量化投资组合管理系统**
 >
-> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 | 数据源: Wind MCP（优先）→ iFinD → 新浪 → AKShare → 本地缓存 | LLM: 本地 Ollama Qwen2.5:7B + 豆包 Speed
+> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 + TrendCast Pro AI预测 | 数据源: Wind MCP（优先）→ iFinD → 新浪 → AKShare → 本地缓存 | LLM: 本地 Ollama Qwen2.5:7B + 豆包 Speed
 
 ---
 
@@ -237,19 +237,197 @@ python "量化策略系统 v5.7.py" --backtest --start-date 2025-01-01 --end-dat
 | `--sync-sl` | 同步止损止盈规则（配合 --rebalance） |
 | `--threshold` | ML信号阈值（配合 --ml-signal，默认0.55） |
 
+### 2.20 每日自动化工作流（daily_runner）
+
+`daily_runner.py` 是每日自动任务的主入口，由 Windows 计划任务触发或手动执行。
+
+```bash
+# 完整流程（数据下载 + 回测 + TrendCast AI预测 + 报告生成）
+python daily_runner.py
+
+# 跳过数据下载
+python daily_runner.py --skip-download
+
+# 跳过回测
+python daily_runner.py --skip-backtest
+
+# 报告后启动模拟交易
+python daily_runner.py --trading
+
+# 仅生成报告
+python daily_runner.py --report-only
+
+# 禁用AI分析
+python daily_runner.py --no-ai
+
+# 禁用 TrendCast AI 预测（默认开启）
+python daily_runner.py --no-trendcast
+```
+
+**执行流程**（5步流水线）：
+
+| 步骤 | 名称 | 说明 |
+|------|------|------|
+| 步骤1 | 数据更新 | 从 Wind MCP / iFinD / AKShare 下载最新行情 |
+| 步骤2 | 快速回测 | 验证当前策略参数有效性 |
+| 步骤2.5 | TrendCast AI预测 | 调用 TrendCast Pro API 获取14只核心持仓涨跌预测信号 ⭐ |
+| 步骤3 | 每日报告 | 生成含 AI 分析的完整 Markdown 日报 |
+| 步骤4 | 模拟交易（可选） | 启动盘中模拟交易 |
+
+**TrendCast Pro 集成详情**：
+- 默认开启（`enable_trendcast=True`），若 API 不可用则优雅降级跳过
+- 批量预测 14 只核心持仓标的，输出看涨/看跌/中立信号 + 置信度
+- 预测结果写入审计追踪（`logs/trendcast_audit/predictions.jsonl`）
+- 到期后自动回溯验证命中率，模型漂移检测告警
+- 信号通过 `quant_modules/prediction_bridge.py` 桥接到再平衡引擎
+
+### 2.21 收盘报告（close_report_runner）
+
+`close_report_runner.py` 每日收盘后自动生成持仓报告。
+
+```bash
+# 立即生成收盘报告
+python close_report_runner.py
+
+# 仅模拟运行，不保存
+python close_report_runner.py --dry-run
+```
+
 ---
 
-## 三、ML模型训练
+## 三、ML模型训练系统
 
-### 3.1 基础训练（4个模型，9个特征）
+### 3.1 训练系统概览
+
+本系统提供三级模型训练流水线，从简单到复杂逐步优化：
+
+```
+基础版 (auto_train.py)          4个模型 / 9个特征
+    ↓
+增强版 (auto_train_enhanced.py)  6个模型 / 42个特征 + PCA降维
+    ↓
+优化版 (auto_train_optimized.py) 6个模型 / 特征选择 + 超参数调优
+```
+
+**预测目标**: 下一日涨跌二分类（上涨/下跌）
+**预测周期**: T+1 日收盘价相对 T 日收盘价的涨跌
+**信号阈值**: 默认 55%（可配置）
+
+---
+
+### 3.2 训练数据
+
+**数据来源**: K线历史数据（data/cache/ 目录下的 Parquet 文件）
+
+| 数据项 | 说明 |
+|--------|------|
+| 数据量 | 32 只标的，44,837 条记录 |
+| 时间跨度 | 2021-2026（约5年） |
+| 数据字段 | 日期、开盘价、最高价、最低价、收盘价、成交量、成交额 |
+| 最终样本 | 7,650 条有效样本（特征工程后） |
+
+**数据文件格式**: Parquet
+```python
+# 列名映射
+columns = {
+    'date': '日期',
+    'open': '开盘价',
+    'high': '最高价',
+    'low': '最低价',
+    'close': '收盘价',
+    'volume': '成交量',
+    'amount': '成交额',
+}
+```
+
+---
+
+### 3.3 特征工程详解
+
+#### 3.3.1 基础特征（9个）
+
+| 特征类别 | 特征名称 | 说明 |
+|----------|----------|------|
+| 收益率 | returns | 日收益率 |
+| 收益率 | log_returns | 对数收益率 |
+| 收益率 | abs_returns | 绝对收益率 |
+| 均线 | ma5_ma20 | 5日/20日均线交叉 |
+| 波动率 | volatility_5 | 5日波动率 |
+| 波动率 | volatility_20 | 20日波动率 |
+| 动量 | momentum_10 | 10日动量 |
+| 动量 | momentum_20 | 20日动量 |
+| RSI | rsi_14 | 14日RSI |
+
+#### 3.3.2 增强特征（42个）
+
+扩展至6大类技术指标：
+
+**1. 收益率类（4个）**
+- returns, log_returns, abs_returns, returns_3
+
+**2. 移动平均线类（8个）**
+- ma5, ma10, ma20, ma60, ma5_ma10, ma5_ma20, ma20_ma60, price_ma20
+
+**3. 波动率类（6个）**
+- volatility_5, volatility_10, volatility_20, volatility_60, atr_14, range_ratio
+
+**4. RSI 类（3个）**
+- rsi_7, rsi_14, rsi_21
+
+**5. MACD & 布林带（5个）**
+- macd, macd_signal, macd_hist, boll_mid, boll_width
+
+**6. 动量 & 趋势类（8个）**
+- momentum_5, momentum_10, momentum_20, trend_5, trend_10, trend_20, ema_12, ema_26
+
+**7. 成交量类（4个）**
+- volume_ma5, volume_ma20, vwap, price_vwap_diff
+
+**8. 特征交叉（4个）**
+- rsi_volatility (RSI × 波动率)
+- momentum_volatility (动量 × 波动率)
+- macd_rsi (MACD × RSI)
+- trend_rsi (趋势 × RSI)
+
+#### 3.3.3 特征选择（SelectKBest）
+
+优化版使用 `SelectKBest(mutual_info_classif, k=20)` 从42个特征中选择最相关的20个：
+
+**Top 15 重要特征（按互信息评分排序）**:
+```
+1. volatility_60      0.0277  ← 60日波动率（最重要）
+2. trend_rsi          0.0245  ← 趋势×RSI 交叉特征
+3. volatility_5       0.0239  ← 5日波动率
+4. momentum_10        0.0212  ← 10日动量
+5. vwap               0.0189  ← 成交量加权均价
+6. ma5_ma20           0.0160  ← 均线交叉
+7. rsi_21             0.0160  ← 21日RSI
+8. momentum_20        0.0156  ← 20日动量
+9. momentum_5         0.0155  ← 5日动量
+10. boll_width        0.0153  ← 布林带宽度
+```
+
+---
+
+### 3.4 训练脚本详解
+
+#### 3.4.1 基础训练（4个模型，9个特征）
 
 ```bash
 python auto_train.py
 ```
 
-训练模型：RandomForest、GradientBoosting、LogisticRegression、SVM
+**训练模型**:
+| 模型 | 说明 |
+|------|------|
+| RandomForest | 随机森林分类器 |
+| GradientBoosting | 梯度提升分类器 |
+| LogisticRegression | 逻辑回归 |
+| SVC | 支持向量机 |
 
-### 3.2 增强训练（6个模型，42个特征）⭐
+**适用场景**: 快速验证、基线对比
+
+#### 3.4.2 增强训练（6个模型，42个特征）⭐
 
 ```bash
 # 标准增强训练
@@ -259,40 +437,209 @@ python auto_train_enhanced.py
 python auto_train_enhanced.py --pca --pca-components 8
 ```
 
-训练模型：RandomForest、GradientBoosting、LogisticRegression、ExtraTrees、XGBoost、LightGBM
+**训练模型**:
+| 模型 | 说明 |
+|------|------|
+| RandomForest | 随机森林（基准） |
+| GradientBoosting | 梯度提升（最佳） |
+| LogisticRegression | 逻辑回归（低延迟） |
+| ExtraTrees | 极端随机树 |
+| XGBoost | 极限梯度提升 |
+| LightGBM | 轻量级梯度提升机 |
 
-### 3.3 优化版训练（特征选择+超参数调优）⭐⭐
+**PCA 降维选项**:
+- 8个主成分，累计解释方差 72.54%
+- 适合低延迟场景，计算更快
+- LogisticRegression 在 PCA 版准确率可达 55.70%
+
+**适用场景**: 特征丰富度验证、模型对比
+
+#### 3.4.3 优化版训练（特征选择+超参数调优）⭐⭐
 
 ```bash
 python auto_train_optimized.py
 ```
 
-**特性**:
-- SelectKBest 特征选择（Top 20特征）
-- GridSearchCV 超参数调优
-- 自动保存最佳模型和元数据
+**核心特性**:
+1. **SelectKBest 特征选择** - 从42个特征中选择 Top 20
+2. **GridSearchCV 超参数调优** - XGBoost/LightGBM 网格搜索
+3. **5个基准模型 + 2个调优模型** - 全面对比
+4. **自动保存最佳模型** - 按准确率+F1排序
 
-### 3.4 训练输出
+**调优参数网格**:
+
+| 参数 | XGBoost | LightGBM |
+|------|---------|----------|
+| max_depth | [4, 5] | [4, 5] |
+| learning_rate | [0.05] | [0.05] |
+| n_estimators | [200] | [200] |
+| subsample | [0.8] | [0.8] |
+| colsample_bytree | [0.8] | [0.8] |
+| reg_lambda | [1.0] | [1.0] |
+| min_child_weight | [1] | - |
+| min_child_samples | - | [20] |
+
+**适用场景**: 生产级模型、追求最佳性能
+
+---
+
+### 3.5 训练流程
+
+```
+步骤1: 数据加载
+    ↓
+步骤2: 特征工程（42个特征）
+    ↓
+步骤3: 特征选择（SelectKBest → 20个）
+    ↓
+步骤4: 数据划分（训练集 80% / 测试集 20%）
+    ↓
+步骤5: 基准模型训练（GradientBoosting / ExtraTrees / LogisticRegression）
+    ↓
+步骤6: 超参数调优（XGBoost / LightGBM GridSearchCV）
+    ↓
+步骤7: 模型评估（准确率 / F1 / AUC / 混淆矩阵）
+    ↓
+步骤8: 保存模型（.pkl + 元数据 + 特征选择器）
+```
+
+---
+
+### 3.6 模型性能对比
+
+| 模型 | 准确率 | F1分数 | AUC | 特征数 | 训练版本 |
+|------|--------|--------|-----|--------|----------|
+| **GradientBoosting** ⭐ | **56.01%** | **0.6280** | 0.5741 | 20 | 优化版 |
+| XGBoost_tuned | 54.84% | 0.5573 | 0.5872 | 20 | 优化版 |
+| ExtraTrees | 54.84% | 0.5061 | 0.5722 | 20 | 优化版 |
+| LightGBM_tuned | 54.18% | 0.5385 | 0.5748 | 20 | 优化版 |
+| LogisticRegression | 54.38% | 0.4978 | 0.5898 | 20 | 优化版 |
+| GradientBoosting（增强版） | 55.18% | 0.6240 | - | 42 | 增强版 |
+| LogisticRegression（PCA版） | 55.70% | - | - | 8 | PCA增强版 |
+
+**最佳模型**: GradientBoosting（优化版）
+- 准确率: **56.01%**
+- F1分数: **0.6280**
+- AUC: 0.5741
+- 特征数: 20（经 SelectKBest 选择）
+
+---
+
+### 3.7 训练输出
 
 训练完成后，模型文件保存在 `models/` 目录：
 
 ```
 models/
 ├── training_metadata_optimized_YYYYMMDD_HHMMSS.json  # 训练元数据
-├── feature_selector_YYYYMMDD_HHMMSS.pkl              # 特征选择器
-├── GradientBoosting_YYYYMMDD_HHMMSS.pkl              # GradientBoosting模型
-├── XGBoost_tuned_YYYYMMDD_HHMMSS.pkl                 # XGBoost调优模型
-├── LightGBM_tuned_YYYYMMDD_HHMMSS.pkl                # LightGBM调优模型
-└── ...
+├── feature_selector_YYYYMMDD_HHMMSS.pkl              # 特征选择器（优化版）
+│
+├── GradientBoosting_acc0.560_f10.628_YYYYMMDD_HHMMSS.pkl
+├── ExtraTrees_acc0.548_f10.506_YYYYMMDD_HHMMSS.pkl
+├── LogisticRegression_acc0.544_f10.498_YYYYMMDD_HHMMSS.pkl
+├── XGBoost_tuned_acc0.548_f10.557_YYYYMMDD_HHMMSS.pkl
+└── LightGBM_tuned_acc0.542_f10.539_YYYYMMDD_HHMMSS.pkl
 ```
 
-### 3.5 模型性能对比
+**元数据文件结构**:
+```json
+{
+  "best_model": "GradientBoosting",
+  "best_accuracy": 0.5601,
+  "best_f1": 0.6280,
+  "n_features": 20,
+  "n_samples": 7650,
+  "feature_names": ["returns", "volatility_60", ...],
+  "model_results": { ... }
+}
+```
 
-| 模型 | 准确率 | F1分数 | AUC | 特征数 |
-|------|--------|--------|-----|--------|
-| GradientBoosting（优化版） | **56.34%** | **0.6370** | 0.5806 | 20 |
-| GradientBoosting（增强版） | 55.18% | 0.6240 | - | 42 |
-| LogisticRegression（PCA版） | 55.70% | - | - | 8 (PCA) |
+---
+
+### 3.8 ML信号驱动交易执行
+
+#### 3.8.1 信号生成
+
+```bash
+# 默认阈值 55%
+python "量化策略系统 v5.7.py" --ml-signal
+
+# 自定义阈值（提高置信度要求）
+python "量化策略系统 v5.7.py" --ml-signal --threshold 0.6
+```
+
+**信号分类**:
+| 信号 | 条件 | 说明 |
+|------|------|------|
+| 🟢 买入 | 上涨概率 > 阈值 | 强烈上涨信号 |
+| 🔴 卖出 | 下跌概率 > 阈值 | 强烈下跌信号 |
+| 🟡 持有 | 双方概率 ≤ 阈值 | 信号不明确 |
+
+#### 3.8.2 卖出执行脚本
+
+```bash
+# 生成卖出计划（不修改持仓）
+python ml_sell_executor.py
+
+# 实际执行卖出（更新持仓文件）
+python ml_sell_executor.py --execute
+```
+
+**卖出策略（按下跌概率分级）**:
+
+| 下跌概率 | 卖出比例 | 策略说明 |
+|----------|----------|----------|
+| ≥ 65% | **100%** | 高置信度下跌信号，全部清仓 |
+| 60-65% | **50%** | 中置信度下跌信号，减半持仓 |
+| 55-60% | **30%** | 低置信度下跌信号，适度减仓 |
+
+#### 3.8.3 自动执行配置
+
+**Windows 任务计划**:
+```powershell
+# 创建6月29日09:30自动执行任务
+powershell -ExecutionPolicy Bypass -File create_task.ps1
+
+# 查看任务
+taskschd.msc
+
+# 删除任务
+Unregister-ScheduledTask -TaskName "ML_Sell_Execute_20260629"
+```
+
+---
+
+### 3.9 模型集成到主系统
+
+ML预测模块已集成到主系统，文件位置：`utils/ml_predictor.py`
+
+**核心类**:
+| 类名 | 功能 |
+|------|------|
+| `MLFeatureEngineer` | 特征工程（42个特征构建） |
+| `MLModelPredictor` | 模型加载与预测 |
+
+**核心方法**:
+```python
+from utils.ml_predictor import MLModelPredictor, run_ml_signal_scan
+
+# 批量预测所有标的
+result = run_ml_signal_scan(
+    data_dir='data/cache',
+    model_dir='models',
+    threshold=0.55
+)
+
+print(f"最佳模型: {result['model_info']['best_model']}")
+print(f"买入信号: {len(result['signals']['buy'])} 只")
+print(f"卖出信号: {len(result['signals']['sell'])} 只")
+```
+
+**自动发现机制**:
+- 自动扫描 `models/` 目录
+- 选择最新训练的最佳模型
+- 自动加载特征选择器和元数据
+- 特征数量自动匹配
 
 ---
 
@@ -301,6 +648,10 @@ models/
 ```
 11_量化策略/
 ├── 量化策略系统 v5.7.py                # 主程序入口（19种CLI模式）⭐
+├── daily_runner.py                     # 每日自动化工作流 ⭐ NEW
+├── close_report_runner.py              # 收盘报告自动生成器 ⭐ NEW
+├── trendcast_client.py                 # TrendCast Pro API 客户端 ⭐ NEW
+├── trendcast_audit.py                  # TrendCast 预测审计追踪 ⭐ NEW
 ├── ui/                                 # Streamlit多页面UI
 │   ├── app.py                          # Streamlit主入口
 │   ├── components/                     # UI组件
@@ -329,9 +680,10 @@ models/
 │   ├── logging_manager.py              # 统一日志
 │   ├── event_tracker.py                # 事件追踪
 │   ├── data_source_manager.py          # 多源自适应数据源
-│   ├── ml_predictor.py                 # ML模型预测模块 ⭐ NEW
+│   ├── ml_predictor.py                 # ML模型预测模块 ⭐
 │   └── report_archiver.py              # 报告归档工具
 ├── quant_modules/                      # 核心量化模块
+│   ├── prediction_bridge.py            # TrendCast 信号权重桥接器 ⭐ NEW
 │   ├── ai_hedge_fund/                  # AI Hedge Fund（19位分析师）
 │   │   ├── agents/                     # 分析师Agent
 │   │   ├── llm/                        # LLM配置
@@ -348,21 +700,40 @@ models/
 │   ├── managers.py                     # 组合优化/康波/ETF管理器
 │   ├── etf_flow.py                     # ETF资金流监控
 │   └── social_security.py              # 社保基金风格追踪
+├── model_train/                        # ML模型训练模块 ⭐ NEW
+│   ├── finbert_sentiment.py            # FinBERT 情感分析
+│   ├── xgboost_direction.py            # XGBoost 涨跌预测
+│   ├── risk_parity_backtest.py         # 风险平价回测
+│   └── signal_composer.py              # 多模型信号合成
+├── Kronos/                             # Kronos 时序预测框架 ⭐ NEW
+│   ├── model/                          # 预训练模型
+│   ├── finetune/                       # 微调脚本
+│   ├── finetune_csv/                   # CSV数据微调
+│   ├── webui/                          # Web管理界面
+│   └── examples/                       # 示例代码
+├── signals/                            # 信号生成模块
+│   └── futures_options_signal.py       # 期货期权信号
 ├── config/                             # 配置文件
 │   ├── portfolio.yaml                  # 组合配置（14标的4板块）
 │   ├── settings.yaml                   # 系统全局配置
 │   ├── positions.json                  # 实时持仓状态
 │   ├── stop_loss_rules_auto.yaml       # 止损止盈规则
 │   └── watchlist.yaml                  # 观察仓配置
-├── models/                             # ML模型输出目录 ⭐ NEW
+├── models/                             # ML模型输出目录 ⭐
 │   └── *.pkl / *.json                  # 训练好的模型和元数据
 ├── data/                               # 数据缓存
 │   └── cache/                          # K线数据缓存
+├── logs/                               # 运行日志
+│   ├── trendcast_audit/                # TrendCast 审计日志 ⭐ NEW
+│   └── close_report_*.log              # 收盘报告日志
 ├── reports/                            # 生成的报告
 ├── scripts/                            # 脚本工具
 ├── auto_train.py                       # 基础版训练脚本
 ├── auto_train_enhanced.py              # 增强版训练脚本 ⭐
 ├── auto_train_optimized.py             # 优化版训练脚本 ⭐⭐
+├── ml_sell_executor.py                 # ML信号驱动卖出执行脚本 ⭐
+├── ml_sell_auto_execute.bat            # ML卖出自动执行批处理
+├── create_task.ps1                     # Windows任务计划配置脚本
 ├── backtest_engine.py                  # 回测引擎
 ├── run_ui.py                           # UI启动脚本
 ├── 启动UI面板.bat                      # UI启动批处理
@@ -531,7 +902,41 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 - 期权信号生成（沪深300/上证50等ETF期权）
 - AI决策引擎（置信度评估/仓位计算/风险管理）
 
-### 6.6 数据获取（优先级链）
+### 6.6 TrendCast Pro AI 预测信号系统 ⭐ NEW
+
+**文件**: `trendcast_client.py` + `trendcast_audit.py` + `quant_modules/prediction_bridge.py`
+
+**功能**:
+- 对接 TrendCast Pro 金融预测 API（`22_auto_金融市场预测模型/`）
+- 批量预测 14 只核心持仓标的的涨跌方向 + 置信度
+- 多周期共识信号（短期/中期/长期）
+- 审计追踪系统：每条预测写入 JSONL 日志，到期后自动回溯验证命中率
+- 模型漂移检测：近30天命中率 vs 整体命中率，偏差超过10%告警
+- 信号权重桥接器：将预测信号直接注入再平衡引擎（看涨+高置信度→增持，看跌+高置信度→减持）
+- API 不可用时优雅降级，不影响其他流程
+
+**使用**:
+```bash
+# 1. 先启动 TrendCast Pro API 服务
+cd "22_auto_金融市场预测模型"
+python main.py serve
+
+# 2. 运行每日流程（默认已开启，无需 --trendcast）
+cd "../11_量化策略"
+python daily_runner.py
+
+# 如需禁用
+python daily_runner.py --no-trendcast
+```
+
+**信号逻辑**:
+| 信号 | 条件 | 权重调整 |
+|------|------|----------|
+| 看涨 + 高置信度 | 上涨概率 > 60% | 权重 × (1 + 信号倍数) |
+| 看跌 + 高置信度 | 下跌概率 > 60% | 权重减少 |
+| 中立 / 低置信度 | 概率 ≤ 60% | 维持原权重 |
+
+### 6.7 数据获取（优先级链）
 
 | 优先级 | 数据源 | 覆盖 | 说明 |
 |--------|--------|------|------|
@@ -622,8 +1027,8 @@ textColor = "#e6edf3"
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| v5.7 | 2026-06-26 | **本地 Ollama Qwen2.5:7B LLM 部署** ⭐、模型存储 D 盘隔离 |
-| v5.6 | 2026-06-26 | ML模型预测信号系统、AI Hedge Fund |
+| v5.7 | 2026-06-27 | **TrendCast Pro AI预测信号系统完整集成** ⭐、每日自动化工作流(daily_runner)、收盘报告自动生成器、Kronos时序预测框架、model_train训练模块 |
+| v5.6 | 2026-06-26 | ML模型预测信号系统、AI Hedge Fund、本地Ollama Qwen2.5部署 |
 | v5.5 | 2026-06-21 | AI量化再平衡引擎、四大理论引擎、期货期权扫描器 |
 | v5.2 | 2026-06-18 | DeepSeek V4 Pro LLM决策引擎接入 |
 | v5.1 | 2026-06 | 康波+十五五+社保ETF三大分析模块 |
@@ -632,9 +1037,15 @@ textColor = "#e6edf3"
 
 ## 十、常用脚本
 
-### 10.1 数据处理
+### 10.1 数据处理与工作流
 
 ```bash
+# 每日自动化工作流（数据+回测+AI预测+报告）
+python daily_runner.py
+
+# 收盘报告自动生成
+python close_report_runner.py
+
 # 补全缺失K线数据
 python download_missing_klines.py
 

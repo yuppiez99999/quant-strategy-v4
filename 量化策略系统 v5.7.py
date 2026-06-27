@@ -237,7 +237,9 @@ try:
     from quant_modules.connectors import register_all_connectors
     n_registered = register_all_connectors(connector_manager)
     if n_registered > 0:
-        logger.info(f"✅ 数据源连接器注册完成: {n_registered} 个可用")
+        # 显式激活主连接器 (Wind MCP, 优先级100)
+        primary = connector_manager.get_active_connector()
+        logger.info(f"✅ 数据源连接器注册完成: {n_registered} 个可用, 主连接器: {primary.name if primary else 'None'}")
     else:
         logger.warning("⚠️ 无可用数据源连接器，系统将以离线模式运行")
 except ImportError as e:
@@ -943,7 +945,7 @@ def run_commodity_fundamentals(args):
         sys.path.insert(0, os.path.join(BASE_DIR, '..', '03_投研与策略生成'))
         from 大宗商品基本面综合 import get_copper_fundamentals
         
-        progress.update(2, "获取铜、金、银等大宗商品数据...")
+        progress.update(2, "获取铜/金/银/原油/铁矿石/动力煤数据...")
         result = get_copper_fundamentals()
         
         progress.update(3, "生成报告...")
@@ -960,8 +962,14 @@ def run_commodity_fundamentals(args):
         ]
         
         for k, v in result.items():
+            if k in ('更新时间', '数据来源', '警告'):
+                continue
             report_lines.append(f"- **{k}**: {v}")
         
+        report_lines.append("")
+        report_lines.append(f"**更新时间**: {result.get('更新时间', 'N/A')}")
+        if '警告' in result:
+            report_lines.append(f"> ⚠️ {result['警告']}")
         report_lines.extend([
             "",
             "---",

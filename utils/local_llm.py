@@ -16,9 +16,9 @@ class LocalLLMClient:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        n_ctx: int = 8192,
+        n_ctx: int = 2048,
         n_gpu_layers: int = 0,
-        n_threads: int = 8,
+        n_threads: int = 4,
         temperature: float = 0.7,
         max_tokens: int = 2048,
     ):

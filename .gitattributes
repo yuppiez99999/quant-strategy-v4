@@ -1,0 +1,14 @@
+# Git LFS 配置
+# 仅大文件使用 Git LFS 存储（免费额度 1GB）
+
+# ML模型文件（大文件）
+*.pkl filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.pth filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.hdf5 filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text
+
+# 数据文件（大文件）
+*.parquet filter=lfs diff=lfs merge=lfs -text

@@ -16,6 +16,7 @@
   python daily_runner.py --report-only      # 仅生成报告
 """
 
+import json
 import os
 import sys
 import time
@@ -233,6 +234,87 @@ def step_daily_report(enable_ai: bool = True) -> str:
         raise
 
 
+def step_trendcast_predict() -> str:
+    """
+    步骤2.5：TrendCast Pro AI预测 + 审计验证
+    调用 TrendCast Pro API 获取14只核心持仓的方向预测，
+    记录到审计系统，并回溯验证已到期的历史预测。
+    """
+    logger.info('[TrendCast] 开始获取 AI 预测信号...')
+
+    lines = []
+    try:
+        from trendcast_client import TrendCastClient, CORE_PORTFOLIO
+        from trendcast_audit import TrendCastAudit
+
+        client = TrendCastClient()
+        audit = TrendCastAudit()
+
+        # 1. 健康检查
+        health = client.health_check()
+        if "error" in health:
+            logger.warning(f'[TrendCast] API 服务不可用: {health["error"]}')
+            return "TrendCast API 不可用，跳过预测"
+
+        logger.info(f'[TrendCast] API 健康: {json.dumps(health, ensure_ascii=False)}')
+
+        # 2. 批量预测全部核心持仓
+        summary = client.get_portfolio_summary()
+        if "error" in summary:
+            logger.warning(f'[TrendCast] 批量预测失败: {summary["error"]}')
+            return f"预测失败: {summary['error']}"
+
+        predictions = summary.get("predictions", [])
+        sector_signals = summary.get("sector_signals", {})
+
+        # 3. 记录预测到审计系统
+        audit_count = 0
+        for p in predictions:
+            symbol = p.get("symbol", "")
+            directions = p.get("directions", {})
+            for horizon, direction in directions.items():
+                if direction not in ("看涨", "看跌"):
+                    continue
+                audit.record_prediction(
+                    symbol=symbol,
+                    horizon=horizon,
+                    direction=direction,
+                    probability=0.65,  # 模型默认置信度
+                    source="trendcast_pro",
+                )
+                audit_count += 1
+
+        # 4. 回溯验证已到期预测
+        verified = audit.verify_predictions()
+        stats = audit.get_stats()
+
+        # 5. 组装摘要
+        lines.append(f"AI 预测完成: {len(predictions)} 只标的, {audit_count} 条预测记录")
+        lines.append(f"审计: 总记录 {stats['total_records']}, 已验证 {stats['verified']}, "
+                     f"命中率 {stats['hit_rate']:.1%}")
+
+        # 板块偏向
+        for sector, sig in sector_signals.items():
+            lines.append(f"  {sector}: {sig['signal']} (bias={sig['bias']:.2f}, "
+                         f"看涨{sig['bullish']}/看跌{sig['bearish']})")
+
+        # 漂移检测
+        verified_count = stats["verified"]
+        if verified_count > 10 and stats["hit_rate"] < 0.5:
+            lines.append("⚠ 漂移告警: 整体命中率 < 50%，建议关注模型性能")
+
+        result = "\n".join(lines)
+        logger.info(f'[TrendCast] {result.replace(chr(10), " | ")}')
+        return result
+
+    except ImportError as e:
+        logger.warning(f'[TrendCast] 模块导入失败: {e}')
+        return f"TrendCast 模块未安装: {e}"
+    except Exception as e:
+        logger.error(f'[TrendCast] 异常: {e}\n{traceback.format_exc()}')
+        return f"TrendCast 预测异常: {e}"
+
+
 def step_start_trading() -> str:
     """
     步骤4(可选)：启动模拟交易
@@ -280,7 +362,7 @@ def step_start_trading() -> str:
 
 def run_daily_pipeline(skip_download=False, skip_backtest=False,
                         enable_trading=False, enable_ai=True,
-                        report_only=False):
+                        enable_trendcast=True, report_only=False):
     """运行完整的每日流程"""
 
     total_start = datetime.now()
@@ -318,6 +400,13 @@ def run_daily_pipeline(skip_download=False, skip_backtest=False,
             sr.success = True
             sr.output = '(跳过)'
             results.append(sr)
+
+        # 步骤2.5: TrendCast Pro AI预测 + 审计（可选）
+        if enable_trendcast:
+            r = run_step('TrendCast AI预测', step_trendcast_predict)
+            results.append(r)
+        else:
+            logger.info('[TrendCast] 已禁用 (--no-trendcast)')
 
         # 步骤3: 每日报告
         r = run_step('每日报告生成', step_daily_report, enable_ai)
@@ -374,12 +463,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python daily_runner.py                  完整流程（数据+回测+报告）
+  python daily_runner.py                  完整流程（数据+回测+报告+AI预测）
   python daily_runner.py --skip-download  跳过数据下载
   python daily_runner.py --skip-backtest  跳过回测
   python daily_runner.py --trading         报告后启动模拟交易
   python daily_runner.py --report-only     仅生成报告
   python daily_runner.py --no-ai           禁用AI分析模块
+  python daily_runner.py --no-trendcast    禁用 TrendCast AI 预测（默认开启）
         """
     )
     parser.add_argument('--skip-download', action='store_true',
@@ -392,6 +482,10 @@ def main():
                         help='仅生成每日报告')
     parser.add_argument('--no-ai', action='store_true',
                         help='禁用AI分析（YiZhao增强模块）')
+    parser.add_argument('--trendcast', action='store_true', default=True,
+                        help='启用 TrendCast Pro AI 预测信号（默认开启，需先启动 API 服务）')
+    parser.add_argument('--no-trendcast', action='store_false', dest='trendcast',
+                        help='禁用 TrendCast Pro AI 预测信号')
 
     args = parser.parse_args()
 
@@ -400,6 +494,7 @@ def main():
         skip_backtest=args.skip_backtest,
         enable_trading=args.trading,
         enable_ai=not args.no_ai,
+        enable_trendcast=args.trendcast,
         report_only=args.report_only,
     )
 
