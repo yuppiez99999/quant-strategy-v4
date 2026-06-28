@@ -209,6 +209,10 @@ train_log_*.txt
 model_train/output/
 model_train/models/
 
+# ── 25. Kronos 预测结果与K线数据 ──────────────────
+Kronos/webui/prediction_results/
+Kronos/finetune_csv/data/
+
 # ============================================================
 # 允许保留的模板文件（不应被忽略）
 # ============================================================

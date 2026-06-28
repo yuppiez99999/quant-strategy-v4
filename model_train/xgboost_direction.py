@@ -72,13 +72,20 @@ LOOKBACK_WINDOW = 60    # 特征窗口
 #  数据下载 (AKShare)
 # ============================================================
 
+def _clean_code(ticker: str) -> str:
+    """去掉 .SZ/.SH 后缀，返回纯6位数字代码"""
+    return ticker.split(".")[0].strip()
+
+
 def _akshare_code(ticker: str) -> str:
-    """将 6 位代码转为 AKShare symbol"""
-    if ticker.startswith(("51", "15")):
-        return f"sh{ticker}" if ticker.startswith("51") else f"sz{ticker}"
-    if ticker.startswith("6"):
-        return f"sh{ticker}"
-    return f"sz{ticker}"
+    """将代码转为 AKShare symbol（纯数字）"""
+    return _clean_code(ticker)
+
+
+def _is_etf(ticker: str) -> bool:
+    """判断是否为ETF"""
+    code = _clean_code(ticker)
+    return code.startswith(("51", "15", "56", "58", "16", "159"))
 
 
 def fetch_kline_akshare(ticker: str, use_cache: bool = True) -> pd.DataFrame:
@@ -93,8 +100,8 @@ def fetch_kline_akshare(ticker: str, use_cache: bool = True) -> pd.DataFrame:
         import akshare as ak
 
         symbol = _akshare_code(ticker)
-        if ticker.startswith(("51", "15", "58")):
-            # ETF 或科创板
+        if _is_etf(ticker):
+            # ETF
             df = ak.fund_etf_hist_em(
                 symbol=symbol,
                 period="daily",
@@ -107,8 +114,9 @@ def fetch_kline_akshare(ticker: str, use_cache: bool = True) -> pd.DataFrame:
                 "最高": "high", "最低": "low", "成交量": "volume",
             })
         else:
+            # 股票
             df = ak.stock_zh_a_hist(
-                symbol=ticker,
+                symbol=symbol,
                 period="daily",
                 start_date="20180101",
                 end_date=datetime.now().strftime("%Y%m%d"),

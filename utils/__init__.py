@@ -25,6 +25,12 @@ from .data_source_manager import (
 from .console_encoding import setup_utf8_console
 from .env_loader import load_dotenv
 from .report_archiver import get_archive_dir, archive_report
+from .timesfm_predictor import (
+    TimesFMPredictor,
+    generate_signal_report,
+    PORTFOLIO_SYMBOLS,
+    CATEGORY_NAMES,
+)
 
 __all__ = [
     # 日志
@@ -36,4 +42,7 @@ __all__ = [
     'get_data_source_manager',
     # 通用工具
     'setup_utf8_console', 'load_dotenv', 'get_archive_dir', 'archive_report',
+    # TimesFM 预测
+    'TimesFMPredictor', 'generate_signal_report', 'PORTFOLIO_SYMBOLS',
+    'CATEGORY_NAMES',
 ]

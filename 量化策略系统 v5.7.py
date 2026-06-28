@@ -57,24 +57,24 @@ Excel数据源 (5个表格联动):
   - 时序预测训练: Transformer模型训练 (新增)
 
 使用方式:
-  python "量化策略系统 v5.0.py" --daily --phase premarket   # 盘前交易计划
-  python "量化策略系统 v5.0.py" --daily --phase intraday    # 盘中策略扫描
-  python "量化策略系统 v5.0.py" --daily --phase postmarket  # 盘后综合报告
-  python "量化策略系统 v5.0.py" --daily --phase all         # 全流程
-  python "量化策略系统 v5.0.py" --rebalance      # 执行Excel再平衡
-  python "量化策略系统 v5.0.py" --rebalance --sync-sl  # 同步止损止盈
-  python "量化策略系统 v5.0.py" --live           # 实时监控模式
-  python "量化策略系统 v5.0.py" --report         # 生成报告
-  python "量化策略系统 v5.0.py" --etf-flow       # ETF资金流向监控
-  python "量化策略系统 v5.0.py" --portfolio-opt  # 投资组合优化
-  python "量化策略系统 v5.0.py" --kommo-monitor  # 康波周期监控
-  python "量化策略系统 v5.0.py" --commodity-fund # 大宗商品基本面
-  python "量化策略系统 v5.0.py" --train-model    # 时序预测训练
-  python "量化策略系统 v5.0.py" --kondratiev     # 康波周期+十五五交叠分析 (v5.1)
-  python "量化策略系统 v5.0.py" --fifteen-five   # 十五五规划适配分析 (v5.1)
-  python "量化策略系统 v5.0.py" --social-security # 社保基金ETF风格追踪 (v5.1)
-  python "量化策略系统 v5.0.py" --macro-analysis  # 宏观综合分析（一键运行三大）(v5.1)
-  python "量化策略系统 v5.0.py" --ml-signal       # ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)
+  python "量化策略系统 v5.7.py" --daily --phase premarket   # 盘前交易计划
+  python "量化策略系统 v5.7.py" --daily --phase intraday    # 盘中策略扫描
+  python "量化策略系统 v5.7.py" --daily --phase postmarket  # 盘后综合报告
+  python "量化策略系统 v5.7.py" --daily --phase all         # 全流程
+  python "量化策略系统 v5.7.py" --rebalance      # 执行Excel再平衡
+  python "量化策略系统 v5.7.py" --rebalance --sync-sl  # 同步止损止盈
+  python "量化策略系统 v5.7.py" --live           # 实时监控模式
+  python "量化策略系统 v5.7.py" --report         # 生成报告
+  python "量化策略系统 v5.7.py" --etf-flow       # ETF资金流向监控
+  python "量化策略系统 v5.7.py" --portfolio-opt  # 投资组合优化
+  python "量化策略系统 v5.7.py" --kommo-monitor  # 康波周期监控
+  python "量化策略系统 v5.7.py" --commodity-fund # 大宗商品基本面
+  python "量化策略系统 v5.7.py" --train-model    # 时序预测训练
+  python "量化策略系统 v5.7.py" --kondratiev     # 康波周期+十五五交叠分析 (v5.1)
+  python "量化策略系统 v5.7.py" --fifteen-five   # 十五五规划适配分析 (v5.1)
+  python "量化策略系统 v5.7.py" --social-security # 社保基金ETF风格追踪 (v5.1)
+  python "量化策略系统 v5.7.py" --macro-analysis  # 宏观综合分析（一键运行三大）(v5.1)
+  python "量化策略系统 v5.7.py" --ml-signal       # ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)
 
 架构特点 (借鉴Vibe-Trading):
   - Connector-first: 统一数据源抽象，支持多连接器配置 (Wind/iFinD/LSEG/yfinance/tushare/新浪) ⭐
@@ -101,23 +101,9 @@ from utils.console_encoding import setup_utf8_console
 from utils.env_loader import load_dotenv
 
 setup_utf8_console()
-load_dotenv()  # 加载 .env 环境变量配置
+load_dotenv()  # 加载 .env 环境变量配置（含引号去除与已存在变量保护）
 
-# ── 加载 .env 文件（必须在所有模块导入之前执行） ─────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(BASE_DIR, '.env')
-if os.path.exists(env_path):
-    with open(env_path, 'r', encoding='utf-8') as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
-
 sys.path.insert(0, BASE_DIR)
 
 # ============================================================
@@ -150,35 +136,6 @@ from engine.rebalance import ExcelDrivenRebalancingEngineV4
 from engine.managers import (
     PortfolioOptimizationEngine, KommoCommodityMonitor, ETFFundFlowMonitor,
 )
-
-# 保留兼容旧代码的 PerformanceTracker（内部委托给 EventTracker）
-class PerformanceTracker:
-    """性能追踪器 - 兼容旧代码，内部使用 EventTracker"""
-    
-    def __init__(self, task_name: str):
-        self.task_name = task_name
-        self.start_time = time.time()
-        self._subtasks = []
-        self._session_id = f"task_{task_name}_{int(time.time())}"
-        event_tracker.start_session(self._session_id, meta={'task': task_name})
-    
-    def record_subtask(self, name: str, duration_ms: float):
-        self._subtasks.append({'name': name, 'duration_ms': duration_ms})
-    
-    def finish(self) -> dict:
-        total_ms = (time.time() - self.start_time) * 1000
-        logger.info(f"任务完成: {self.task_name} | 总耗时: {total_ms:.2f}ms",
-                   extra={'operation': self.task_name, 'duration_ms': total_ms})
-        if self._subtasks:
-            for subtask in self._subtasks:
-                logger.info(f"  └─ {subtask['name']}: {subtask['duration_ms']:.2f}ms",
-                           extra={'operation': self.task_name, 'duration_ms': subtask['duration_ms']})
-        event_tracker.finish_session(self._session_id)
-        return {
-            'task': self.task_name,
-            'total_ms': total_ms,
-            'subtasks': self._subtasks
-        }
 
 # ============================================================
 # 全局降级管理器
@@ -304,6 +261,57 @@ except ImportError as e:
 # except Exception as e:
 #     logger.warning(f"⚠️  LSEG 连接器注册失败: {e}")
 
+# ============================================================
+# 通用辅助函数 — 消除各 run_* 模式中的重复样板
+# ============================================================
+def _write_report_file(report: str, filename: Optional[str]) -> None:
+    """可选：将报告写入 BASE_DIR/reports/<filename>（filename 为空则跳过）。"""
+    if not filename:
+        return
+    report_dir = os.path.join(BASE_DIR, 'reports')
+    os.makedirs(report_dir, exist_ok=True)
+    report_path = os.path.join(report_dir, filename)
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(report)
+    print(f"\n✅ 报告已保存: {report_path}")
+
+
+def _archive_report(report: str, name: str, ext: str = '.md') -> str:
+    """归档报告到「每日报告归档」目录，返回归档路径。"""
+    archive_name = f'{name}_{datetime.now().strftime("%Y%m%d")}{ext}'
+    archive_path = archive_report(BASE_DIR, archive_name, report)
+    print(f"✅ 报告已归档: {archive_path}")
+    return archive_path
+
+
+def _get_portfolio_quotes() -> Dict[str, Dict[str, float]]:
+    """加载持仓配置并批量获取行情，返回 {code: {'price': p}}（行情不可用时返回空字典）。"""
+    get_quotes_batch = data_provider.get('get_quotes_batch')
+    config = load_portfolio_config()
+    if not get_quotes_batch or not config:
+        return {}
+    codes = [a['code'] for a in config.get('assets', [])]
+    stocks = [c for c in codes if not (c.startswith('5') or c == '159915')]
+    funds = [c for c in codes if c.startswith('5') or c == '159915']
+    prices = get_quotes_batch(stocks, funds)
+    return {k: {'price': v['price']} for k, v in prices.items() if v['price'] > 0}
+
+
+def _build_etf_flow_data(flow_monitor) -> Optional[dict]:
+    """将 ETFFundFlowMonitor.flow_data 转为 SocialSecurityETFTracker 需要的格式（无数据返回 None）。"""
+    if not flow_monitor.flow_data:
+        return None
+    return {
+        code: {
+            "name": data.get("name", code),
+            "net_flow_yi": data.get("net_flow_yi", 0),
+            "trend": data.get("trend", "中性"),
+            "category": data.get("category", "未知"),
+        }
+        for code, data in flow_monitor.flow_data.items()
+    }
+
+
 def run_etf_flow_monitor(args):
     """ETF资金流向监控模式 - 追踪国家队资金动向"""
     print("\n📊 ETF国家队资金流向监控")
@@ -326,22 +334,12 @@ def run_etf_flow_monitor(args):
     # 生成报告
     report = monitor.generate_report()
     print("\n" + report)
-    
-    # 保存报告
-    if args.output:
-        report_dir = os.path.join(BASE_DIR, 'reports')
-        os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, args.output)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-    
-    # 归档到每日报告目录
-    archive_path = archive_report(BASE_DIR, f'ETF资金流向_{datetime.now().strftime("%Y%m%d")}.md', report)
-    print(f"✅ 报告已归档: {archive_path}")
-    
+
+    _write_report_file(report, args.output)
+    _archive_report(report, 'ETF资金流向')
+
     progress.complete(f"检测到 {len(signals)} 条信号")
-    
+
     return monitor
 
 def run_ml_signal_mode(args):
@@ -478,26 +476,12 @@ def run_ml_signal_mode(args):
             down_prob = 1 - s['probability']
             print(f"  {s['code']}: 下跌概率 {down_prob:.2%}, 置信度 {s['confidence']:.2%}")
     
-    # 保存报告
-    if args.output:
-        report_dir = os.path.join(BASE_DIR, 'reports')
-        os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, args.output)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-    
-    # 归档到每日报告目录
-    archive_path = archive_report(
-        BASE_DIR, 
-        f'ML预测信号_{datetime.now().strftime("%Y%m%d")}.md', 
-        report
-    )
-    print(f"✅ 报告已归档: {archive_path}")
-    
+    _write_report_file(report, args.output)
+    _archive_report(report, 'ML预测信号')
+
     progress.update(5, "完成")
     progress.complete(f"扫描完成: 买入{len(buy_signals)} / 卖出{len(sell_signals)} / 持有{len(hold_signals)}")
-    
+
     return result
 
 def run_live_monitoring(args):
@@ -545,10 +529,10 @@ def run_report_generation(args):
             )
             
             progress.update(4, "保存报告...")
-            # 保存到归档目录
-            archive_path = archive_report(BASE_DIR, f'综合日报_{datetime.now().strftime("%Y%m%d")}.txt', report_content)
+            # 归档到每日报告目录（保持 .txt 扩展名）
+            archive_path = _archive_report(report_content, '综合日报', ext='.txt')
 
-            progress.complete(f"\n✅ 报告已归档到: {archive_path}")
+            progress.complete("✅ 报告归档完成")
             
         except Exception as e:
             progress.complete(f"\n❌ 报告生成失败: {e}")
@@ -624,14 +608,8 @@ def run_rebalance(args):
             engine.sync_to_stop_loss_monitor()
             print("\n✅ 止损止盈规则已同步到 config/rebalance_stop_loss_v43.json")
         
-        if args.output:
-            report_dir = os.path.join(BASE_DIR, 'reports')
-            os.makedirs(report_dir, exist_ok=True)
-            report_path = os.path.join(report_dir, args.output)
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write(report)
-            print(f"\n✅ 报告已保存: {report_path}")
-        
+        _write_report_file(report, args.output)
+
         progress.complete("✅ 再平衡执行完成")
     else:
         progress.complete("❌ 无法加载再平衡数据")
@@ -699,17 +677,7 @@ def run_risk_monitor(args):
         monitor = StopLossMonitor()
         
         progress.update(3, "获取行情数据...")
-        quotes = {}
-        get_quotes_batch = data_provider.get('get_quotes_batch')
-        if get_quotes_batch:
-            config = load_portfolio_config()
-            if config:
-                codes = [a['code'] for a in config.get('assets', [])]
-                # ETF: 5xxxxx (上交所) / 159915等 (深交所)
-                stocks = [c for c in codes if not (c.startswith('5') or c == '159915')]
-                funds = [c for c in codes if c.startswith('5') or c == '159915']
-                prices = get_quotes_batch(stocks, funds)
-                quotes = {k: {'price': v['price']} for k, v in prices.items() if v['price'] > 0}
+        quotes = _get_portfolio_quotes()
         
         if not quotes:
             print("\n⚠️ 使用模拟数据进行风险监控")
@@ -878,21 +846,11 @@ def run_portfolio_optimization(args):
     report = engine.generate_report()
     print("\n" + report)
     
-    # 保存报告
-    if args.output:
-        report_dir = os.path.join(BASE_DIR, 'reports')
-        os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, args.output)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-    
-    # 归档到每日报告目录
-    archive_path = archive_report(BASE_DIR, f'投资组合优化_{datetime.now().strftime("%Y%m%d")}.txt', report)
-    print(f"✅ 报告已归档: {archive_path}")
-    
+    _write_report_file(report, args.output)
+    _archive_report(report, '投资组合优化')
+
     progress.complete("✅ 投资组合优化完成")
-    
+
     return engine
 
 
@@ -914,19 +872,9 @@ def run_kommo_monitor(args):
     report = monitor.generate_report()
     print("\n" + report)
     
-    # 保存报告
-    if args.output:
-        report_dir = os.path.join(BASE_DIR, 'reports')
-        os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, args.output)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-    
-    # 归档到每日报告目录
-    archive_path = archive_report(BASE_DIR, f'康波周期监控_{datetime.now().strftime("%Y%m%d")}.md', report)
-    print(f"✅ 报告已归档: {archive_path}")
-    
+    _write_report_file(report, args.output)
+    _archive_report(report, '康波周期监控')
+
     progress.complete(f"检测到 {len(commodity_result)} 只商品")
     
     return monitor
@@ -978,20 +926,10 @@ def run_commodity_fundamentals(args):
         
         report = "\n".join(report_lines)
         print("\n" + report)
-        
-        # 保存报告
-        if args.output:
-            report_dir = os.path.join(BASE_DIR, 'reports')
-            os.makedirs(report_dir, exist_ok=True)
-            report_path = os.path.join(report_dir, args.output)
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write(report)
-            print(f"\n✅ 报告已保存: {report_path}")
-        
-        # 归档到每日报告目录
-        archive_path = archive_report(BASE_DIR, f'大宗商品基本面_{datetime.now().strftime("%Y%m%d")}.md', report)
-        print(f"✅ 报告已归档: {archive_path}")
-        
+
+        _write_report_file(report, args.output)
+        _archive_report(report, '大宗商品基本面')
+
         progress.complete("✅ 大宗商品基本面分析完成")
         return result
         
@@ -1083,16 +1021,8 @@ def run_kondratiev_analysis(args):
     progress.update(4, "生成报告...")
     report = analyzer.generate_report()
 
-    # 保存报告
-    if args.output:
-        report_path = os.path.join(BASE_DIR, 'reports', args.output)
-        os.makedirs(os.path.dirname(report_path), exist_ok=True)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-
-    archive_path = archive_report(BASE_DIR, f'康波周期分析_{datetime.now().strftime("%Y%m%d")}.md', report)
-    print(f"✅ 报告已归档: {archive_path}")
+    _write_report_file(report, args.output)
+    _archive_report(report, '康波周期分析')
 
     progress.complete("✅ 康波周期分析完成")
     return analyzer
@@ -1132,16 +1062,8 @@ def run_fifteen_five_analysis(args):
     progress.update(4, "生成报告...")
     report = analyzer.generate_report()
 
-    # 保存报告
-    if args.output:
-        report_path = os.path.join(BASE_DIR, 'reports', args.output)
-        os.makedirs(os.path.dirname(report_path), exist_ok=True)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-
-    archive_path = archive_report(BASE_DIR, f'十五五规划适配_{datetime.now().strftime("%Y%m%d")}.md', report)
-    print(f"✅ 报告已归档: {archive_path}")
+    _write_report_file(report, args.output)
+    _archive_report(report, '十五五规划适配')
 
     progress.complete("✅ 十五五规划分析完成")
     return analyzer
@@ -1180,32 +1102,16 @@ def run_social_security_analysis(args):
     try:
         flow_monitor = ETFFundFlowMonitor(data_connector_manager=connector_manager)
         flow_monitor.analyze_fund_flow()
-        if flow_monitor.flow_data:
-            # 转换为 SocialSecurityETFTracker 需要的格式
-            flow_data = {}
-            for code, data in flow_monitor.flow_data.items():
-                flow_data[code] = {
-                    "name": data.get("name", code),
-                    "net_flow_yi": data.get("net_flow_yi", 0),
-                    "trend": data.get("trend", "中性"),
-                    "category": data.get("category", "未知"),
-                }
+        flow_data = _build_etf_flow_data(flow_monitor)
+        if flow_data:
             print(f"\n  💰 已获取 {len(flow_data)} 只ETF资金流数据")
     except Exception as e:
         logger.debug(f"获取ETF资金流数据失败（将使用静态分析）: {e}")
 
     report = tracker.generate_report(flow_data=flow_data)
 
-    # 保存报告
-    if args.output:
-        report_path = os.path.join(BASE_DIR, 'reports', args.output)
-        os.makedirs(os.path.dirname(report_path), exist_ok=True)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n✅ 报告已保存: {report_path}")
-
-    archive_path = archive_report(BASE_DIR, f'社保基金ETF追踪_{datetime.now().strftime("%Y%m%d")}.md', report)
-    print(f"✅ 报告已归档: {archive_path}")
+    _write_report_file(report, args.output)
+    _archive_report(report, '社保基金ETF追踪')
 
     progress.complete("✅ 社保基金ETF追踪完成")
     return tracker
@@ -1252,7 +1158,7 @@ def run_macro_analysis(args):
             print(f"    {overlay['synergy_conclusion'][:100]}...")
 
             report = kondratiev.generate_report()
-            archive_report(BASE_DIR, f'康波周期分析_{datetime.now().strftime("%Y%m%d")}.md', report)
+            _archive_report(report, '康波周期分析')
             print(f"\n  ✅ 康波周期报告已归档")
             results['kondratiev'] = True
         except Exception as e:
@@ -1284,7 +1190,7 @@ def run_macro_analysis(args):
                     print(f"    {direction} {adj['name']}: {adj['suggestion']} ({adj['weight_adjust_pct']:+.1f}%)")
 
             report = fifteen_five.generate_report()
-            archive_report(BASE_DIR, f'十五五规划适配_{datetime.now().strftime("%Y%m%d")}.md', report)
+            _archive_report(report, '十五五规划适配')
             print(f"\n  ✅ 十五五规划报告已归档")
             results['fifteen_five'] = True
         except Exception as e:
@@ -1314,20 +1220,12 @@ def run_macro_analysis(args):
             try:
                 flow_monitor = ETFFundFlowMonitor(data_connector_manager=connector_manager)
                 flow_monitor.analyze_fund_flow()
-                if flow_monitor.flow_data:
-                    flow_data = {}
-                    for code, data in flow_monitor.flow_data.items():
-                        flow_data[code] = {
-                            "name": data.get("name", code),
-                            "net_flow_yi": data.get("net_flow_yi", 0),
-                            "trend": data.get("trend", "中性"),
-                            "category": data.get("category", "未知"),
-                        }
+                flow_data = _build_etf_flow_data(flow_monitor)
             except Exception:
                 pass
 
             report = ss_tracker.generate_report(flow_data=flow_data)
-            archive_report(BASE_DIR, f'社保基金ETF追踪_{datetime.now().strftime("%Y%m%d")}.md', report)
+            _archive_report(report, '社保基金ETF追踪')
             print(f"\n  ✅ 社保基金ETF报告已归档")
             results['social_security'] = True
         except Exception as e:
@@ -1460,53 +1358,39 @@ def run_daily_workflow(args):
     print("-" * 70)
     
     try:
-        if phase == 'premarket':
-            # 盘前计划
-            if hasattr(dtw, 'run_premarket'):
-                dtw.run_premarket()
-                print("\n✅ 盘前计划生成完成")
+        # 阶段注册表：函数名 / 完成提示
+        PHASE_MAP = {
+            'premarket': ('run_premarket', '盘前计划生成完成'),
+            'intraday':  ('run_intraday',  '盘中策略扫描完成'),
+            'postmarket': ('run_postmarket', '盘后报告生成完成'),
+        }
+
+        if phase in PHASE_MAP:
+            func_name, success_msg = PHASE_MAP[phase]
+            func = getattr(dtw, func_name, None)
+            if func:
+                func()
+                print(f"\n✅ {success_msg}")
             else:
-                print("\n❌ run_premarket 函数不存在")
-        
-        elif phase == 'intraday':
-            # 盘中策略
-            if hasattr(dtw, 'run_intraday'):
-                dtw.run_intraday()
-                print("\n✅ 盘中策略扫描完成")
-            else:
-                print("\n❌ run_intraday 函数不存在")
-        
-        elif phase == 'postmarket':
-            # 盘后报告
-            if hasattr(dtw, 'run_postmarket'):
-                dtw.run_postmarket()
-                print("\n✅ 盘后报告生成完成")
-            else:
-                print("\n❌ run_postmarket 函数不存在")
-        
+                print(f"\n❌ {func_name} 函数不存在")
+
         elif phase == 'all':
             # 全流程执行
             print("\n🚀 开始全流程执行...")
-            
+
             if hasattr(dtw, 'run_all'):
                 dtw.run_all()
                 print("\n✅ 全流程执行完成")
             else:
                 # 手动串联三个阶段
-                print("\n[1/3] 盘前计划")
-                if hasattr(dtw, 'run_premarket'):
-                    dtw.run_premarket()
-                
-                print("\n[2/3] 盘中策略")
-                if hasattr(dtw, 'run_intraday'):
-                    dtw.run_intraday()
-                
-                print("\n[3/3] 盘后报告")
-                if hasattr(dtw, 'run_postmarket'):
-                    dtw.run_postmarket()
-                
+                for i, (func_name, success_msg) in enumerate(PHASE_MAP.values(), 1):
+                    print(f"\n[{i}/{len(PHASE_MAP)}] {success_msg[:4]}")
+                    func = getattr(dtw, func_name, None)
+                    if func:
+                        func()
+
                 print("\n✅ 全流程执行完成")
-        
+
         else:
             print(f"\n❌ 未知阶段: {phase}")
             print("💡 可用阶段: premarket, intraday, postmarket, all")
@@ -1562,12 +1446,12 @@ def run_unified_monitor(args):
     import time
     import logging
     from pathlib import Path
-    
-    # 配置日志
-    LOG_DIR = Path(__file__).parent / "trade_logs"
-    LOG_DIR.mkdir(exist_ok=True)
-    
-    log_file = LOG_DIR / f'unified_{datetime.now():%Y%m%d_%H%M%S}.log'
+
+    # 配置日志（使用 TRADE_LOG_DIR 避免与全局 LOG_DIR 冲突）
+    TRADE_LOG_DIR = Path(__file__).parent / "trade_logs"
+    TRADE_LOG_DIR.mkdir(exist_ok=True)
+
+    log_file = TRADE_LOG_DIR / f'unified_{datetime.now():%Y%m%d_%H%M%S}.log'
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
@@ -1576,43 +1460,58 @@ def run_unified_monitor(args):
             logging.StreamHandler(sys.stdout)
         ]
     )
-    logger = logging.getLogger('unified_monitor')
-    
+    um_logger = logging.getLogger('unified_monitor')
+
     def run_module_loop(name, func, interval=300):
         """模块循环执行"""
-        logger.info(f"🚀 启动模块: {name}")
+        um_logger.info(f"🚀 启动模块: {name}")
         while True:
             try:
-                logger.info(f"▶️  执行: {name}")
+                um_logger.info(f"▶️  执行: {name}")
                 func()
-                logger.info(f"✅ {name} 完成")
+                um_logger.info(f"✅ {name} 完成")
             except KeyboardInterrupt:
-                logger.info(f"⏹️  用户中断: {name}")
+                um_logger.info(f"⏹️  用户中断: {name}")
                 break
             except Exception as e:
-                logger.error(f"❌ {name} 错误: {e}", exc_info=True)
+                um_logger.error(f"❌ {name} 错误: {e}", exc_info=True)
             time.sleep(interval)
-    
-    # 股票实时监控
+
+    # 股票实时行情快照（单次，非阻塞）
     def stock_monitor_func():
-        print("\n[股票监控] 运行实时行情监控...")
-    
+        quotes = _get_portfolio_quotes()
+        if not quotes:
+            um_logger.warning("[股票监控] 数据源不可用，跳过本轮")
+            return
+        um_logger.info(f"[股票监控] 已获取 {len(quotes)} 只标的行情")
+        for code, info in list(quotes.items())[:5]:
+            um_logger.info(f"  {code}: {info['price']}")
+
     # 期货期权扫描
     def futures_scan_func():
         """调用期货期权扫描模块"""
         try:
-            print("\n[期货期权] 运行市场扫描...")
+            um_logger.info("[期货期权] 运行市场扫描...")
             from quant_modules.futures_options_scanner import run_full_scan
             result = run_full_scan(use_wind=True, use_deepseek=False)
-            print(f"[期货期权] 扫描完成 - 发现 {len(result.get('arbitrage_signals', []))} 个套利机会")
+            um_logger.info(f"[期货期权] 扫描完成 - 发现 {len(result.get('arbitrage_signals', []))} 个套利机会")
         except ImportError as e:
-            print(f"[期货期权] 模块导入失败: {e}")
+            um_logger.error(f"[期货期权] 模块导入失败: {e}")
         except Exception as e:
-            print(f"[期货期权] 错误: {e}")
-    
-    # 风险评估
+            um_logger.error(f"[期货期权] 错误: {e}")
+
+    # 止损止盈风险快照（单次，非阻塞）
     def risk_check_func():
-        print("\n[风险评估] 检查止损止盈状态...")
+        StopLossMonitor = stop_loss.get('StopLossMonitor')
+        quotes = _get_portfolio_quotes()
+        if not StopLossMonitor or not quotes:
+            um_logger.warning("[风险评估] 风控模块或行情不可用，跳过本轮")
+            return
+        try:
+            alerts = StopLossMonitor().check_all(quotes)
+            um_logger.info(f"[风险评估] 检查 {len(quotes)} 只标的，发现 {len(alerts)} 条告警")
+        except Exception as e:
+            um_logger.error(f"[风险评估] 错误: {e}")
     
     # 启动线程
     threads = []
@@ -1656,7 +1555,7 @@ def run_unified_monitor(args):
         print("\n\n" + "=" * 70)
         print("⏹️  正在关闭所有模块...")
         print("=" * 70)
-        logger.info("所有模块已停止")
+        um_logger.info("所有模块已停止")
 
 
 def run_hypothesis_test(args):
@@ -1707,46 +1606,65 @@ def run_hypothesis_test(args):
 # ============================================================
 
 def main():
+    # ── 模式注册表：flag / dest / 帮助文本 / handler ──
+    MODES = [
+        ('--daily',           'daily',           '三阶段交易工作流 (盘前计划/盘中策略/盘后报告)', run_daily_workflow),
+        ('--live',            'live',            '实时监控模式',                                    run_live_monitoring),
+        ('--report',          'report',          '报告生成模式',                                    run_report_generation),
+        ('--rebalance',       'rebalance',       '再平衡模式',                                      run_rebalance),
+        ('--backtest',        'backtest',        '回测模式',                                        run_backtest),
+        ('--risk',            'risk',            '风险监控模式',                                    run_risk_monitor),
+        ('--check',           'check',           '快速检查模式',                                    run_quick_check),
+        ('--hypothesis',      'hypothesis',      '假设验证模式',                                    run_hypothesis_test),
+        ('--etf-flow',        'etf_flow',        'ETF资金流向监控',                                 run_etf_flow_monitor),
+        ('--portfolio-opt',   'portfolio_opt',   '投资组合优化',                                    run_portfolio_optimization),
+        ('--kommo-monitor',   'kommo_monitor',   '康波周期监控',                                    run_kommo_monitor),
+        ('--commodity-fund',  'commodity_fund',  '大宗商品基本面',                                  run_commodity_fundamentals),
+        ('--train-model',     'train_model',     '时序预测训练',                                    run_model_training),
+        ('--kondratiev',      'kondratiev',      '康波周期+十五五交叠分析',                         run_kondratiev_analysis),
+        ('--fifteen-five',    'fifteen_five',    '十五五规划适配分析',                              run_fifteen_five_analysis),
+        ('--social-security', 'social_security', '社保基金ETF风格追踪',                             run_social_security_analysis),
+        ('--macro-analysis',  'macro_analysis',  '宏观综合分析（康波+十五五+社保ETF一键运行）',       run_macro_analysis),
+        ('--ai-decision',     'ai_decision',     'GLM5 AI盘中实时决策模式',                         run_ai_decision),
+        ('--futures-options', 'futures_options', '期货期权扫描',                                    run_futures_options_scan),
+        ('--unified-monitor', 'unified_monitor', '统一监控模式 - 一键启动所有模块',                  run_unified_monitor),
+        ('--ai-hedge',        'ai_hedge',        'AI Hedge Fund - 19位大师级AI分析师联合决策',      run_ai_hedge_mode),
+        ('--ml-signal',       'ml_signal',       'ML模型预测信号 - GradientBoosting涨跌预测',       run_ml_signal_mode),
+    ]
+
+    # 由 MODES 动态生成 epilog 中的运行模式清单
+    mode_lines = '\n'.join(
+        f"  {flag:<20s} {help_text}" for flag, _, help_text, _ in MODES
+    )
+
     parser = argparse.ArgumentParser(
-        description='量化策略系统 v5.0 - Vibe-Trading 优化版',
+        description='量化策略系统 v5.7 - Vibe-Trading 优化版',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 运行模式:
-  --live        实时监控模式 - 盘中实时行情监控 + 自动再平衡
-  --report      报告生成模式 - 生成每日持仓报告
-  --rebalance   再平衡模式 - 执行Excel驱动的再平衡计划
-  --backtest    回测模式 - 历史数据回测验证
-  --risk        风险监控模式 - 检查止损止盈状态
-  --check       快速检查模式 - 检查系统状态
-  --hypothesis  假设验证模式 - 研究假设管理
-  --etf-flow    ETF资金流向监控 - 追踪国家队资金动向
-  --portfolio-opt  投资组合优化 - 多策略资产配置对比
-  --kommo-monitor 康波周期监控 - 大宗商品全维度监控
-  --commodity-fund 大宗商品基本面 - Wind数据综合分析
-  --train-model 时序预测训练 - Transformer模型训练
-  --kondratiev  康波周期+十五五交叠分析 - 周期阶段判定+行业轮动 (v5.1新增)
-  --fifteen-five 十五五规划适配分析 - 持仓对标+政策对齐评分 (v5.1新增)
-  --social-security 社保基金ETF风格追踪 - 风格分类+国家队信号 (v5.1新增)
-  --macro-analysis 宏观综合分析 - 一键运行康波+十五五+社保ETF (v5.1新增)
-  --futures-options 期货期权扫描 - 期货市场+期权市场+套利机会 (新增)
-  --unified-monitor 统一监控 - 一键启动所有模块并行运行 (新增)
+{mode_lines}
 
 示例:
-  python "量化策略系统 v5.0.py" --live              # 启动实时监控
-  python "量化策略系统 v5.0.py" --report            # 生成报告
-  python "量化策略系统 v5.0.py" --rebalance         # 执行再平衡
-  python "量化策略系统 v5.0.py" --risk              # 风险监控
-  python "量化策略系统 v5.0.py" --check             # 系统检查
-  python "量化策略系统 v5.0.py" --etf-flow          # ETF资金流向监控
-  python "量化策略系统 v5.0.py" --hypothesis --list # 列出假设
-  python "量化策略系统 v5.0.py" --portfolio-opt     # 投资组合优化
-  python "量化策略系统 v5.0.py" --kommo-monitor     # 康波周期监控
-  python "量化策略系统 v5.0.py" --commodity-fund    # 大宗商品基本面
-  python "量化策略系统 v5.0.py" --train-model       # 时序预测训练
-  python "量化策略系统 v5.0.py" --kondratiev        # 康波周期+十五五交叠分析 (v5.1)
-  python "量化策略系统 v5.0.py" --fifteen-five      # 十五五规划适配分析 (v5.1)
-  python "量化策略系统 v5.0.py" --social-security   # 社保基金ETF风格追踪 (v5.1)
-  python "量化策略系统 v5.0.py" --macro-analysis    # 宏观综合分析 (v5.1)
+  python "量化策略系统 v5.7.py" --live              # 启动实时监控
+  python "量化策略系统 v5.7.py" --report            # 生成报告
+  python "量化策略系统 v5.7.py" --rebalance         # 执行再平衡
+  python "量化策略系统 v5.7.py" --risk              # 风险监控
+  python "量化策略系统 v5.7.py" --check             # 系统检查
+  python "量化策略系统 v5.7.py" --etf-flow          # ETF资金流向监控
+  python "量化策略系统 v5.7.py" --hypothesis --list # 列出假设
+  python "量化策略系统 v5.7.py" --portfolio-opt     # 投资组合优化
+  python "量化策略系统 v5.7.py" --kommo-monitor     # 康波周期监控
+  python "量化策略系统 v5.7.py" --commodity-fund    # 大宗商品基本面
+  python "量化策略系统 v5.7.py" --train-model       # 时序预测训练
+  python "量化策略系统 v5.7.py" --kondratiev        # 康波周期+十五五交叠分析
+  python "量化策略系统 v5.7.py" --fifteen-five      # 十五五规划适配分析
+  python "量化策略系统 v5.7.py" --social-security   # 社保基金ETF风格追踪
+  python "量化策略系统 v5.7.py" --macro-analysis    # 宏观综合分析
+  python "量化策略系统 v5.7.py" --ai-decision       # AI盘中实时决策
+  python "量化策略系统 v5.7.py" --futures-options   # 期货期权扫描
+  python "量化策略系统 v5.7.py" --unified-monitor    # 统一监控
+  python "量化策略系统 v5.7.py" --ai-hedge          # AI Hedge Fund
+  python "量化策略系统 v5.7.py" --ml-signal         # ML模型预测信号
 
 架构特点 (借鉴Vibe-Trading):
   • Connector-first: 统一数据源抽象，支持多连接器配置
@@ -1760,41 +1678,22 @@ def main():
   • 时序预测: Transformer模型骨架集成
         """
     )
-    
-    # 运行模式
+
+    # ── 注册运行模式（数据驱动，声明一次即可） ──
     mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument('--daily', action='store_true', help='三阶段交易工作流 (盘前计划/盘中策略/盘后报告)')
-    mode_group.add_argument('--live', action='store_true', help='实时监控模式')
-    mode_group.add_argument('--report', action='store_true', help='报告生成模式')
-    mode_group.add_argument('--rebalance', action='store_true', help='再平衡模式')
-    mode_group.add_argument('--backtest', action='store_true', help='回测模式')
-    mode_group.add_argument('--risk', action='store_true', help='风险监控模式')
-    mode_group.add_argument('--check', action='store_true', help='快速检查模式')
-    mode_group.add_argument('--hypothesis', action='store_true', help='假设验证模式')
-    mode_group.add_argument('--etf-flow', action='store_true', help='ETF资金流向监控模式')
-    mode_group.add_argument('--portfolio-opt', action='store_true', help='投资组合优化模式 (新增)')
-    mode_group.add_argument('--kommo-monitor', action='store_true', help='康波周期监控模式 (新增)')
-    mode_group.add_argument('--commodity-fund', action='store_true', help='大宗商品基本面分析模式 (新增)')
-    mode_group.add_argument('--train-model', action='store_true', help='时序预测模型训练模式 (新增)')
-    mode_group.add_argument('--kondratiev', action='store_true', help='康波周期+十五五交叠分析模式 (v5.1新增)')
-    mode_group.add_argument('--fifteen-five', action='store_true', help='十五五规划适配分析模式 (v5.1新增)')
-    mode_group.add_argument('--social-security', action='store_true', help='社保基金ETF风格追踪模式 (v5.1新增)')
-    mode_group.add_argument('--macro-analysis', action='store_true', help='宏观综合分析（康波+十五五+社保ETF一键运行）(v5.1新增)')
-    mode_group.add_argument('--ai-decision', action='store_true', help='GLM5 AI盘中实时决策模式 (v5.2新增)')
-    mode_group.add_argument('--futures-options', action='store_true', help='期货期权扫描模式 (新增)')
-    mode_group.add_argument('--unified-monitor', action='store_true', help='统一监控模式 - 一键启动所有模块 (新增)')
-    mode_group.add_argument('--ai-hedge', action='store_true', help='AI Hedge Fund - 19位大师级AI分析师联合决策 (v5.6新增)')
-    mode_group.add_argument('--ml-signal', action='store_true', help='ML模型预测信号 - GradientBoosting涨跌预测 (v5.6新增)')
-    
+    for flag, dest, help_text, _ in MODES:
+        mode_group.add_argument(flag, dest=dest, action='store_true', help=help_text)
+
+    # ── 子阶段 / 通用选项 / 模式专属选项 ──
     # --daily 子阶段
     parser.add_argument('--phase', choices=['premarket', 'intraday', 'postmarket', 'all'],
                         default='all', help='三阶段工作流子阶段 (配合 --daily 使用)')
-    
+
     # 通用选项
     parser.add_argument('--no-ai', action='store_true', help='禁用AI分析模块')
     parser.add_argument('--output', '-o', default=None, help='输出报告文件名')
     parser.add_argument('--sync-sl', action='store_true', help='同步止损止盈规则')
-    
+
     # AI Hedge Fund 选项
     parser.add_argument('--ticker', '-t', nargs='+', default=None, help='AI Hedge Fund: 股票代码列表')
     parser.add_argument('--analysts', '-a', nargs='*', default=None, help='AI Hedge Fund: 选择分析师 (默认全部)')
@@ -1803,62 +1702,22 @@ def main():
     parser.add_argument('--provider', type=str, default=None, help='AI Hedge Fund: LLM 提供商')
     parser.add_argument('--start-date', type=str, default=None, help='AI Hedge Fund/回测: 开始日期 YYYY-MM-DD')
     parser.add_argument('--end-date', type=str, default=None, help='AI Hedge Fund/回测: 结束日期 YYYY-MM-DD')
-    
+
     # 假设验证选项
     parser.add_argument('--list', action='store_true', help='列出研究假设')
     parser.add_argument('--register', type=str, help='注册新假设: id|名称|描述')
     parser.add_argument('--validate', type=str, help='验证指定假设')
-    
+
     # ML信号选项
     parser.add_argument('--threshold', type=float, default=0.55, help='ML信号: 买入信号阈值 (默认 0.55)')
-    
+
     args = parser.parse_args()
-    
-    # 根据模式执行
-    if args.daily:
-        run_daily_workflow(args)
-    elif args.live:
-        run_live_monitoring(args)
-    elif args.report:
-        run_report_generation(args)
-    elif args.rebalance:
-        run_rebalance(args)
-    elif args.backtest:
-        run_backtest(args)
-    elif args.risk:
-        run_risk_monitor(args)
-    elif args.check:
-        run_quick_check(args)
-    elif args.hypothesis:
-        run_hypothesis_test(args)
-    elif args.etf_flow:
-        run_etf_flow_monitor(args)
-    elif args.portfolio_opt:
-        run_portfolio_optimization(args)
-    elif args.kommo_monitor:
-        run_kommo_monitor(args)
-    elif args.commodity_fund:
-        run_commodity_fundamentals(args)
-    elif args.train_model:
-        run_model_training(args)
-    elif args.kondratiev:
-        run_kondratiev_analysis(args)
-    elif args.fifteen_five:
-        run_fifteen_five_analysis(args)
-    elif args.social_security:
-        run_social_security_analysis(args)
-    elif args.macro_analysis:
-        run_macro_analysis(args)
-    elif args.ai_decision:
-        run_ai_decision(args)
-    elif args.futures_options:
-        run_futures_options_scan(args)
-    elif args.unified_monitor:
-        run_unified_monitor(args)
-    elif args.ai_hedge:
-        run_ai_hedge_mode(args)
-    elif args.ml_signal:
-        run_ml_signal_mode(args)
+
+    # ── 数据驱动分发（取代 22 分支 if/elif） ──
+    for _, dest, _, handler in MODES:
+        if getattr(args, dest):
+            handler(args)
+            break
 
 def run_ai_hedge_mode(args):
     """AI Hedge Fund — 19位大师级AI分析师联合决策模式"""
@@ -1947,7 +1806,7 @@ def run_ai_hedge_mode(args):
 if __name__ == '__main__':
     # 打印启动信息
     print("=" * 70)
-    print("          量化策略系统 v5.0 - Vibe-Trading 优化版")
+    print("          量化策略系统 v5.7 - Vibe-Trading 优化版")
     print("                    HKUDS/Vibe-Trading Architecture")
     print("=" * 70)
     print(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
