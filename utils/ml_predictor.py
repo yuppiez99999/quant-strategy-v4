@@ -187,34 +187,90 @@ class MLModelPredictor:
         self.selected_features = []
         self._loaded = False
 
+    # 模型优先级偏好：LightGBM > XGBoost > GradientBoosting > ExtraTrees > LGBMClassifier > LogisticRegression
+    MODEL_PREFERENCE = ['LightGBM_tuned', 'LightGBM', 'LGBMClassifier', 
+                        'XGBoost_tuned', 'XGBoost', 'XGBClassifier',
+                        'GradientBoosting', 'ExtraTrees', 'LogisticRegression']
+
     def auto_discover(self) -> bool:
         """
         自动发现并加载最佳模型
+        策略：扫描所有元数据，优先选择 LightGBM_tuned，
+        若多份元数据都有同类模型则选准确率最高的
         
         Returns:
             是否成功加载
         """
-        # 查找最新的优化版元数据
+        # 查找所有优化版元数据
         meta_pattern = os.path.join(self.model_dir, 'training_metadata_optimized_*.json')
-        meta_files = sorted(glob.glob(meta_pattern), reverse=True)
+        meta_files = sorted(glob.glob(meta_pattern))
         
         if meta_files:
-            return self._load_optimized(meta_files[0])
+            return self._load_optimized_best(meta_files)
         
         # 回退到增强版
         meta_pattern = os.path.join(self.model_dir, 'training_metadata_enhanced_*.json')
-        meta_files = sorted(glob.glob(meta_pattern), reverse=True)
+        meta_files = sorted(glob.glob(meta_pattern))
         if meta_files:
-            return self._load_enhanced(meta_files[0])
+            return self._load_enhanced(meta_files[-1])  # 最新
         
         # 回退到基础版
         meta_pattern = os.path.join(self.model_dir, 'training_metadata_*.json')
-        meta_files = sorted(glob.glob(meta_pattern), reverse=True)
+        meta_files = sorted(glob.glob(meta_pattern))
         if meta_files:
-            return self._load_basic(meta_files[0])
+            return self._load_basic(meta_files[-1])
         
         print("[ML] 未找到训练元数据")
         return False
+
+    def _load_optimized_best(self, meta_files: List[str]) -> bool:
+        """
+        从多份优化版元数据中选择最佳模型
+        优先选择 LightGBM_tuned，其次按 accuracy 排序
+        """
+        candidates = []  # [(meta_path, model_name, accuracy, f1, auc), ...]
+        
+        for mp in meta_files:
+            try:
+                with open(mp, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                results = meta.get('results', {})
+                # 检查所有模型
+                for model_name, metrics in results.items():
+                    acc = metrics.get('accuracy', 0)
+                    f1_val = metrics.get('f1', 0)
+                    auc_val = metrics.get('auc', 0)
+                    candidates.append((mp, model_name, acc, f1_val, auc_val))
+            except Exception:
+                continue
+        
+        if not candidates:
+            return self._load_optimized(meta_files[-1])
+        
+        # 按偏好排序：LightGBM_tuned 优先，再按 accuracy 排序
+        def sort_key(item):
+            mp, model_name, acc, f1_val, auc_val = item
+            # 偏好分：LightGBM_tuned +10, LightGBM +8, XGBoost_tuned +5
+            pref = 0
+            if 'LightGBM_tuned' in model_name:
+                pref = 10
+            elif 'LightGBM' in model_name:
+                pref = 8
+            elif 'XGBoost_tuned' in model_name:
+                pref = 5
+            elif 'XGBoost' in model_name:
+                pref = 3
+            elif 'GradientBoosting' in model_name:
+                pref = 1
+            return (-pref, -acc)
+        
+        candidates.sort(key=sort_key)
+        best_meta_path, best_model_name, best_acc, best_f1, best_auc = candidates[0]
+        
+        print(f"[ML] 从 {len(meta_files)} 份元数据中择优 → {best_model_name} "
+              f"(Acc={best_acc:.2%}, F1={best_f1:.4f}, AUC={best_auc:.4f})")
+        
+        return self._load_optimized(best_meta_path)
 
     def _load_optimized(self, meta_path: str) -> bool:
         """加载优化版模型（含特征选择）"""
@@ -466,6 +522,201 @@ class MLModelPredictor:
         }
 
 
+class StackingPredictor:
+    """Stacking 集成预测器 v1.0
+
+    加载多个模型（XGBoost + LightGBM + GradientBoosting + ExtraTrees），
+    使用概率平均 + 模型加权的方式融合多模型预测结果。
+
+    相比单一模型：
+    - 降低过拟合风险
+    - 提高预测稳定性
+    - 模型间互补（不同模型擅长不同模式）
+    """
+
+    def __init__(self, model_dir: str = 'models', weight_method: str = 'f1_weighted'):
+        """
+        Args:
+            model_dir: 模型文件目录
+            weight_method: 权重计算方式
+                - 'f1_weighted': 按各模型历史 F1 分数加权
+                - 'uniform': 等权平均
+                - 'auc_weighted': 按 AUC 分数加权
+        """
+        self.model_dir = model_dir
+        self.weight_method = weight_method
+        self.models: Dict[str, Any] = {}
+        self.model_weights: Dict[str, float] = {}
+        self.feature_engineer = MLFeatureEngineer()
+        self.selected_features: List[str] = []
+        self.metadata: Dict[str, Any] = {}
+        self._loaded = False
+
+    def auto_discover_and_load(self) -> bool:
+        """
+        自动发现并加载所有可用的优化模型用于 Stacking。
+
+        扫描 models/ 目录，加载所有 Optuna 优化版模型。
+        如果 Optuna 版不存在，回退到 GridSearch 版。
+        """
+        # 优先加载 Optuna 优化版模型
+        optuna_meta = sorted(glob.glob(
+            os.path.join(self.model_dir, 'training_metadata_optuna_*.json')
+        ))
+        if not optuna_meta:
+            optuna_meta = sorted(glob.glob(
+                os.path.join(self.model_dir, 'training_metadata_optimized_*.json')
+            ))
+
+        if not optuna_meta:
+            print("[Stacking] 未找到优化版元数据")
+            return False
+
+        # 加载最新的元数据
+        meta_path = optuna_meta[-1]
+        print(f"[Stacking] 加载元数据: {os.path.basename(meta_path)}")
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            self.metadata = json.load(f)
+
+        results = self.metadata.get('results', {})
+        self.selected_features = self.metadata.get('features', [])
+
+        # 加载每个子模型
+        loaded_count = 0
+        f1_scores = {}
+        auc_scores = {}
+
+        for model_name, metrics in results.items():
+            model_path = metrics.get('model_path', '')
+            if not model_path or not os.path.exists(model_path):
+                # 尝试按模式查找
+                pattern = os.path.join(self.model_dir, f'{model_name}_*.pkl')
+                model_files = sorted(glob.glob(pattern), reverse=True)
+                if model_files:
+                    model_path = model_files[0]
+                else:
+                    continue
+
+            try:
+                model = joblib.load(model_path)
+                self.models[model_name] = model
+                f1_scores[model_name] = metrics.get('train_f1', 0)
+                auc_scores[model_name] = metrics.get('train_auc', 0)
+                loaded_count += 1
+                print(f"[Stacking] ✅ {model_name} (F1={f1_scores[model_name]:.4f})")
+            except Exception as e:
+                print(f"[Stacking] ⚠️ {model_name} 加载失败: {e}")
+
+        if loaded_count < 2:
+            print(f"[Stacking] 模型不足 ({loaded_count}个)，Stacking 至少需要 2 个模型")
+            return False
+
+        # 计算权重
+        if self.weight_method == 'f1_weighted':
+            total_f1 = sum(f1_scores.values())
+            if total_f1 > 0:
+                self.model_weights = {k: v / total_f1 for k, v in f1_scores.items()}
+            else:
+                self.model_weights = {k: 1.0 / loaded_count for k in f1_scores}
+        elif self.weight_method == 'auc_weighted':
+            total_auc = sum(auc_scores.values())
+            if total_auc > 0:
+                self.model_weights = {k: v / total_auc for k, v in auc_scores.items()}
+            else:
+                self.model_weights = {k: 1.0 / loaded_count for k in auc_scores}
+        else:
+            self.model_weights = {k: 1.0 / loaded_count for k in f1_scores}
+
+        self._loaded = True
+        print(f"[Stacking] 已加载 {loaded_count} 个模型，权重方法: {self.weight_method}")
+        return True
+
+    def predict(self, kline_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        """
+        Stacking 融合预测。
+
+        所有子模型分别预测，按权重平均概率，最后输出融合结果。
+        """
+        if not self._loaded:
+            if not self.auto_discover_and_load():
+                # 回退到单一最佳模型
+                print("[Stacking] 回退到单一模型预测")
+                single = MLModelPredictor(model_dir=self.model_dir)
+                if single.auto_discover():
+                    return single.predict(kline_df)
+                return None
+
+        # 构建特征
+        feat_df = self.feature_engineer.build_features(kline_df)
+
+        # 找可用特征
+        available_features = [f for f in self.selected_features if f in feat_df.columns]
+        if not available_features:
+            print("[Stacking] 无可用特征")
+            return None
+
+        feat_clean = feat_df[available_features].dropna()
+        if len(feat_clean) == 0:
+            return None
+
+        X = feat_clean.iloc[-1:].values
+
+        # 各模型独立预测
+        weighted_prob = 0.0
+        individual_probs = {}
+        individual_preds = {}
+        total_weight = sum(self.model_weights.values())
+
+        for name, model in self.models.items():
+            try:
+                proba = model.predict_proba(X)[0]
+                up_prob = proba[1] if len(proba) > 1 else proba[0]
+                pred = model.predict(X)[0]
+                w = self.model_weights.get(name, 0)
+                weighted_prob += up_prob * w
+                individual_probs[name] = float(up_prob)
+                individual_preds[name] = int(pred)
+            except Exception as e:
+                print(f"[Stacking] {name} 预测失败: {e}")
+
+        if total_weight == 0:
+            return None
+
+        # 归一化加权概率
+        final_prob = weighted_prob / total_weight
+        final_pred = 1 if final_prob > 0.5 else 0
+
+        # 计算信号强度与置信度
+        signal = (final_prob - 0.5) * 2
+        # 模型间一致性越高，置信度越高
+        pred_values = list(individual_preds.values())
+        agreement = sum(1 for p in pred_values if p == final_pred) / len(pred_values)
+
+        return {
+            'prediction': final_pred,
+            'direction': '上涨' if final_pred == 1 else '下跌',
+            'probability': float(final_prob),
+            'signal': float(signal),
+            'confidence': float(abs(final_prob - 0.5) * 2 * agreement),
+            'model': 'Stacking',
+            'individual_probs': individual_probs,
+            'model_count': len(self.models),
+            'agreement': float(agreement),
+        }
+
+    def batch_predict(self, kline_dict: Dict[str, pd.DataFrame],
+                      top_n: int = 20) -> List[Dict[str, Any]]:
+        """批量 Stacking 预测"""
+        results = []
+        for code, df in kline_dict.items():
+            pred = self.predict(df)
+            if pred:
+                pred['code'] = code
+                results.append(pred)
+        results.sort(key=lambda x: x['probability'], reverse=True)
+        return results[:top_n]
+
+
 def run_ml_signal_scan(codes: List[str] = None, 
                         data_dir: str = 'data/cache',
                         model_dir: str = 'models',
@@ -514,6 +765,327 @@ def run_ml_signal_scan(codes: List[str] = None,
         'signals': signals,
         'scanned_count': len(kline_dict),
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# v2.0 增强预测器 — 四维优化
+# ═══════════════════════════════════════════════════════════════
+
+class EnhancedPredictor:
+    """增强预测器 v2.0 — 支持多窗口 / 过滤震荡 / 增强特征 / 样本加权
+
+    加载 ml_enhanced_trainer 训练的模型，能够：
+    - 自动识别 T+1 / T+5 / T+10 预测窗口
+    - 自动检测是否为过滤震荡日模型（默认忽略震荡预测）
+    - 使用增强特征（行业RS/市场宽度/北向/PE/PB/ROE）
+    - 多模型 Stacking 融合
+    """
+
+    def __init__(self, model_dir: str = 'models', weight_method: str = 'f1_weighted'):
+        self.model_dir = model_dir
+        self.weight_method = weight_method
+        self.models: Dict[str, Any] = {}
+        self.model_weights: Dict[str, float] = {}
+        self.selected_features: List[str] = []
+        self.metadata: Dict[str, Any] = {}
+        self.prediction_horizon: int = 1
+        self.filter_oscillation: bool = True
+        self._loaded = False
+
+        # 尝试加载增强特征工程器
+        try:
+            from .ml_enhanced_trainer import EnhancedFeatureEngineer
+            self.feature_engineer = EnhancedFeatureEngineer(data_dir=model_dir.replace('models', 'data/cache'))
+        except ImportError:
+            self.feature_engineer = MLFeatureEngineer()
+
+    def auto_discover_and_load(self, prefer_enhanced: bool = True) -> bool:
+        """自动发现并加载最佳模型
+
+        优先加载 enhanced_v2 模型，回退 enhanced → optimized → optuna
+        """
+        # 优先: 增强v2模型
+        if prefer_enhanced:
+            meta_patterns = [
+                'training_metadata_enhanced_v2_*.json',
+                'training_metadata_enhanced_*.json',
+                'training_metadata_optuna_*.json',
+                'training_metadata_optimized_*.json',
+                'training_metadata_*.json',
+            ]
+        else:
+            meta_patterns = [
+                'training_metadata_optuna_*.json',
+                'training_metadata_optimized_*.json',
+                'training_metadata_enhanced_v2_*.json',
+                'training_metadata_*.json',
+            ]
+
+        for pattern in meta_patterns:
+            meta_files = sorted(glob.glob(os.path.join(self.model_dir, pattern)), reverse=True)
+            if meta_files:
+                return self._load_from_meta(meta_files[0])
+
+        print("[EnhancedPredictor] 未找到训练元数据")
+        return False
+
+    def _load_from_meta(self, meta_path: str) -> bool:
+        """从元数据加载所有模型"""
+        print(f"[EnhancedPredictor] 加载: {os.path.basename(meta_path)}")
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            self.metadata = json.load(f)
+
+        # 读取配置
+        cfg = self.metadata.get('config', {})
+        self.prediction_horizon = cfg.get('prediction_horizon', 1)
+        self.filter_oscillation = cfg.get('filter_oscillation', True)
+
+        self.selected_features = self.metadata.get('features', [])
+        results = self.metadata.get('results', {})
+        best_model_name = self.metadata.get('best_model', '')
+
+        # 加载所有模型及其权重
+        f1_scores = {}
+        loaded_count = 0
+
+        for model_name, metrics in results.items():
+            model_path = metrics.get('model_path', '')
+            if not model_path or not os.path.exists(model_path):
+                pattern = os.path.join(self.model_dir, f'{model_name}_*.pkl')
+                model_files = sorted(glob.glob(pattern), reverse=True)
+                if model_files:
+                    model_path = model_files[0]
+                else:
+                    continue
+
+            try:
+                model = joblib.load(model_path)
+                self.models[model_name] = model
+                f1_scores[model_name] = metrics.get('f1', 0)
+                loaded_count += 1
+                print(f"  ✅ {model_name} (F1={f1_scores[model_name]:.4f})")
+            except Exception as e:
+                print(f"  ⚠️ {model_name}: {e}")
+
+        if loaded_count == 0:
+            return False
+
+        # 计算融合权重
+        if self.weight_method == 'f1_weighted' and sum(f1_scores.values()) > 0:
+            self.model_weights = {k: v / sum(f1_scores.values()) for k, v in f1_scores.items()}
+        elif self.weight_method == 'auc_weighted':
+            auc_scores = {k: results[k].get('auc', 0) for k in f1_scores}
+            total = sum(auc_scores.values())
+            self.model_weights = {k: v / total for k, v in auc_scores.items()} if total > 0 else {
+                k: 1.0 / loaded_count for k in f1_scores}
+        else:
+            self.model_weights = {k: 1.0 / loaded_count for k in f1_scores}
+
+        self._loaded = True
+        print(f"  📐 预测窗口: T+{self.prediction_horizon} | 过滤震荡: {self.filter_oscillation}")
+        print(f"  📊 加载 {loaded_count} 个模型, 权重: {self.weight_method}")
+        return True
+
+    def predict(self, kline_df: pd.DataFrame,
+                market_data: Dict[str, pd.DataFrame] = None,
+                northbound_data: pd.DataFrame = None) -> Optional[Dict[str, Any]]:
+        """增强预测 — 支持多窗口 + 新特征
+
+        Args:
+            kline_df: 单标的K线数据
+            market_data: 全市场K线(用于行业RS/市场宽度)
+            northbound_data: 北向资金(可选)
+
+        Returns:
+            预测结果字典, 包含:
+            - prediction: 0=跌, 1=涨
+            - probability: 上涨概率
+            - strength: 信号强度分类 (strong_buy/buy/hold/sell/strong_sell)
+            - is_oscillation: 是否判定为震荡 (filter_oscillation模式)
+            - horizon: 预测窗口 T+N
+        """
+        if not self._loaded:
+            if not self.auto_discover_and_load():
+                return None
+
+        # 使用增强特征工程器或回退
+        try:
+            feat_df = self.feature_engineer.build_enhanced_features(
+                kline_df,
+                market_data=market_data,
+                northbound_data=northbound_data,
+                prediction_horizon=self.prediction_horizon,
+            )
+        except (AttributeError, TypeError):
+            # 回退到基础特征工程
+            feat_df = MLFeatureEngineer().build_features(kline_df)
+
+        # 提取可用特征
+        available = [f for f in self.selected_features if f in feat_df.columns]
+        if not available:
+            # 如果增强特征全不可用, 尝试基础特征
+            available = [f for f in self.selected_features if f in feat_df.columns]
+            if not available:
+                print("[EnhancedPredictor] 无可用特征")
+                return None
+
+        feat_clean = feat_df[available].fillna(0).replace([np.inf, -np.inf], 0)
+        if len(feat_clean) == 0:
+            return None
+
+        X = feat_clean.iloc[-1:].values
+
+        # 多模型加权融合
+        weighted_prob = 0.0
+        individual_probs = {}
+        individual_preds = {}
+        total_weight = sum(self.model_weights.values())
+
+        for name, model in self.models.items():
+            try:
+                proba = model.predict_proba(X)[0]
+                up_prob = proba[1] if len(proba) > 1 else proba[0]
+                pred = model.predict(X)[0]
+                w = self.model_weights.get(name, 0)
+                weighted_prob += up_prob * w
+                individual_probs[name] = float(up_prob)
+                individual_preds[name] = int(pred)
+            except Exception as e:
+                continue
+
+        if total_weight == 0:
+            return None
+
+        final_prob = weighted_prob / total_weight
+        final_pred = 1 if final_prob > 0.5 else 0
+
+        # 模型间一致性
+        pred_values = list(individual_preds.values())
+        agreement = sum(1 for p in pred_values if p == final_pred) / max(len(pred_values), 1)
+
+        # 信号强度分类 (三分类逻辑: 过滤震荡)
+        if self.filter_oscillation:
+            signal_strength = (final_prob - 0.5) * 2
+            confidence = abs(signal_strength) * agreement
+
+            if final_prob > 0.65:
+                strength = 'strong_buy'
+            elif final_prob > 0.55:
+                strength = 'buy'
+            elif final_prob < 0.35:
+                strength = 'strong_sell'
+            elif final_prob < 0.45:
+                strength = 'sell'
+            else:
+                strength = 'hold'  # 震荡区域 — 不参与交易
+        else:
+            signal_strength = (final_prob - 0.5) * 2
+            confidence = abs(signal_strength) * agreement
+            if final_prob > 0.55:
+                strength = 'buy'
+            elif final_prob < 0.45:
+                strength = 'sell'
+            else:
+                strength = 'hold'
+
+        return {
+            'prediction': final_pred,
+            'direction': '上涨' if final_pred == 1 else '下跌',
+            'probability': float(final_prob),
+            'signal': float(signal_strength),
+            'confidence': float(confidence),
+            'strength': strength,
+            'model': 'EnhancedStacking',
+            'individual_probs': individual_probs,
+            'model_count': len(self.models),
+            'agreement': float(agreement),
+            'horizon': self.prediction_horizon,
+            'filter_oscillation': self.filter_oscillation,
+        }
+
+    def batch_predict(self, kline_dict: Dict[str, pd.DataFrame],
+                      market_data: Dict[str, pd.DataFrame] = None,
+                      top_n: int = 20) -> List[Dict[str, Any]]:
+        """批量增强预测"""
+        results = []
+        for code, df in kline_dict.items():
+            pred = self.predict(df, market_data=market_data)
+            if pred:
+                pred['code'] = code
+                results.append(pred)
+        results.sort(key=lambda x: x['probability'], reverse=True)
+        return results[:top_n]
+
+    def generate_trading_signals(self, kline_dict: Dict[str, pd.DataFrame],
+                                  market_data: Dict[str, pd.DataFrame] = None,
+                                  threshold: float = 0.55) -> Dict[str, Any]:
+        """生成交易信号 (增强版: 过滤震荡)"""
+        predictions = self.batch_predict(kline_dict, market_data=market_data,
+                                         top_n=len(kline_dict))
+
+        buy_signals = []
+        sell_signals = []
+        hold_signals = []
+
+        for pred in predictions:
+            code = pred['code']
+            prob = pred['probability']
+            strength = pred.get('strength', 'hold')
+
+            entry = {
+                'code': code,
+                'probability': prob,
+                'confidence': pred['confidence'],
+                'signal_strength': pred['signal'],
+                'strength': strength,
+                'agreement': pred.get('agreement', 0),
+                'horizon': self.prediction_horizon,
+            }
+
+            if strength in ('strong_buy', 'buy'):
+                buy_signals.append(entry)
+            elif strength in ('strong_sell', 'sell'):
+                sell_signals.append(entry)
+            else:
+                hold_signals.append(entry)
+
+        return {
+            'buy': buy_signals,
+            'sell': sell_signals,
+            'hold': hold_signals,
+            'threshold': threshold,
+            'total': len(predictions),
+            'model': 'EnhancedStacking',
+            'horizon': self.prediction_horizon,
+            'filter_oscillation': self.filter_oscillation,
+            'model_count': len(self.models),
+            'model_accuracy': max(
+                (self.metadata.get('results', {}).get(k, {}).get('accuracy', 0)
+                 for k in self.models), default=0
+            ),
+        }
+
+    def get_model_info(self) -> Dict[str, Any]:
+        """获取模型信息"""
+        if not self._loaded:
+            return {'loaded': False}
+
+        best_model = self.metadata.get('best_model', 'unknown')
+        result = self.metadata.get('results', {}).get(best_model, {})
+
+        return {
+            'loaded': True,
+            'best_model': best_model,
+            'accuracy': result.get('accuracy', 0),
+            'f1': result.get('f1', 0),
+            'auc': result.get('auc', 0),
+            'feature_count': len(self.selected_features),
+            'features': self.selected_features,
+            'timestamp': self.metadata.get('timestamp', ''),
+            'horizon': self.prediction_horizon,
+            'filter_oscillation': self.filter_oscillation,
+            'model_count': len(self.models),
+        }
 
 
 if __name__ == '__main__':

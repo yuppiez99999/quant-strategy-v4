@@ -580,7 +580,7 @@ class AIQuantRebalancingEngine:
 
         # 子引擎
         self.risk_parity = RiskParityEngine()
-        self.llm = DeepSeekRebalancer() if use_llm else None
+        self.llm = SeedRebalancer() if use_llm else None
 
         # 止损规则表 (从配置提取)
         self.stop_loss_table = {}
@@ -879,7 +879,7 @@ if __name__ == "__main__":
     print(f"  综合: {kpi['overall']}")
 
     # DeepSeek状态
-    llm = DeepSeekRebalancer()
+    llm = SeedRebalancer()
     print(f"\nDeepSeek LLM: {'可用' if llm.available else '未配置API Key'}")
 
     # 理论引擎

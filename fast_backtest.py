@@ -68,7 +68,7 @@ def main():
     dates = dates[-1260:]
     print(f"\n📅 回测区间: {dates[0].date()} ~ {dates[-1].date()}, 共 {len(dates)} 个交易日")
 
-    initial_capital = 1000000
+    initial_capital = 3000000
     cash = initial_capital
     positions = {}
     equity_curve = []

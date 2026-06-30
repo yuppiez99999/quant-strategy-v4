@@ -20,6 +20,7 @@ from quant_modules.ai_hedge_fund.agents.mohnish_pabrai import mohnish_pabrai_age
 from quant_modules.ai_hedge_fund.agents.nassim_taleb import nassim_taleb_agent
 from quant_modules.ai_hedge_fund.agents.news_sentiment import news_sentiment_agent
 from quant_modules.ai_hedge_fund.agents.growth_agent import growth_analyst_agent
+from quant_modules.ai_hedge_fund.agents.hedge_analyst import hedge_analyst_agent
 
 # Define analyst configuration - single source of truth
 ANALYST_CONFIG = {
@@ -174,6 +175,14 @@ ANALYST_CONFIG = {
         "agent_func": valuation_analyst_agent,
         "type": "analyst",
         "order": 18,
+    },
+    "hedge_analyst": {
+        "display_name": "Hedge Analyst (Taleb+Burry+Druck)",
+        "description": "Trinity Hedge Strategist",
+        "investing_style": "Integrates Taleb tail-risk, Burry short signals, and Druckenmiller macro to design portfolio hedging strategies using index futures and ETF options. Recommends IF/IC/IH/IM futures shorts or protective put/collar strategies.",
+        "agent_func": hedge_analyst_agent,
+        "type": "hedge",
+        "order": 19,
     },
 }
 

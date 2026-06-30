@@ -1,14 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-GLM-5 自动决策引擎 - 量化交易系统 AI 决策模块
-自动分析市场数据并生成交易决策建议
+AI 自动决策引擎 v5.8 — 量化交易系统 AI 决策模块 (多模型场景路由升级)
+根据调研推荐方案，实现场景路由 + 并行对冲 + 交叉验证
 
-使用方式:
+架构变更 (v5.7 → v5.8):
+- 旧: 单一 GLM5Client + 豆包优先 + 顺序降级 + 硬编码指数数据
+- 新: ModelRouter 场景路由 + Wind MCP 动态数据 + 并行对冲 + 交叉验证
+  - 盘中决策: GLM-4.7-Flash + Qwen3.5 Flash 并行对冲 (<12秒)
+  - 再平衡: DeepSeek V4 Pro + Qwen-Plus 交叉验证 (深度推理)
+  - 宏观分析: DeepSeek V4 Pro + GLM-5.2 交叉验证
+  - 报告生成: Qwen-Plus (创意结构化)
+  - 轻量分析: 豆包Speed (情感/分类)
+
+使用方式 (向后兼容):
     from utils.glm5_decision_engine import GLM5DecisionEngine
     
     engine = GLM5DecisionEngine()
-    decisions = engine.make_decisions(market_data, portfolio_data)
-    print(decisions['trading_signals'])
+    # 盘中决策
+    decisions = engine.make_decisions(market_data, portfolio_data, scene="intraday_decision")
+    # 或再平衡分析
+    decisions = engine.make_decisions(market_data, portfolio_data, scene="rebalancing_analysis")
 """
 
 import os
@@ -24,6 +35,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.glm5_client import GLM5Client
+from utils.multi_model_router import ModelRouter, RoutingResult, get_model_router
+from utils.wind_data_provider import WindDataProvider, get_wind_provider
 
 logger = logging.getLogger(__name__)
 
@@ -71,15 +84,29 @@ class DecisionResult:
 
 class GLM5DecisionEngine:
     """
-    GLM-5 自动决策引擎
+    AI 自动决策引擎 v5.8 — 多模型场景路由
     
     功能:
-    1. 自动分析市场数据（指数、板块、资金流）
+    1. 自动分析市场数据（Wind MCP 动态指数、板块、资金流）
     2. 评估持仓风险（止损/止盈/仓位偏离）
     3. 生成交易信号（买卖建议）
     4. 风险预警（异常波动/极端行情）
-    5. 组合再平衡建议
+    5. 组合再平衡建议 — 含 Wind MCP 基本面 RAG
+    
+    v5.8 升级要点:
+    - 场景路由代替固定模型优先级
+    - Wind MCP 动态指数数据代替硬编码
+    - 再平衡场景自动加载基本面 RAG
     """
+    
+    # 支持的决策场景
+    SCENES = {
+        "intraday_decision": "盘中实时决策 (低延迟优先)",
+        "rebalancing_analysis": "再平衡深度分析 (推理质量优先)",
+        "macro_analysis": "宏观综合分析 (三大分析)",
+        "report_generation": "报告生成 (结构化输出)",
+        "light_analysis": "轻量分析 (情感/分类)",
+    }
     
     def __init__(self, config: Optional[Dict] = None, **kwargs):
         """
@@ -87,24 +114,42 @@ class GLM5DecisionEngine:
         
         Args:
             config: 配置字典
-            **kwargs: 传递给 GLM5Client 的参数
+            **kwargs: 可覆盖 scene/model 等参数
         """
-        # 默认配置（豆包Speed，最快响应）
+        # 默认配置
         self.config = config or {
             "mode": "api",
-            "api_model": "doubao-speed-32k",  # 豆包Speed，最快响应
-            "temperature": 0.3,  # 低温度，更确定性
-            "max_tokens": 3000,  # 长输出，详细分析
+            "default_scene": "intraday_decision",
+            "temperature": 0.3,
+            "max_tokens": 3000,
             "enable_risk_check": True,
             "enable_signal_generation": True,
             "enable_rebalance": True,
+            "use_wind_mcp": True,          # v5.8: 使用 Wind MCP 动态数据
+            "use_fundamental_rag": True,    # v5.8: 再平衡时启用基本面 RAG
         }
         
         # 合并用户配置
         if kwargs:
             self.config.update(kwargs)
         
-        # 初始化 GLM-5 客户端
+        # v5.8: 初始化多模型路由器 (替代旧的 GLM5Client 优先模式)
+        try:
+            self.router = get_model_router()
+            logger.info("✓ 多模型路由器初始化成功")
+        except Exception as e:
+            logger.warning(f"多模型路由器初始化失败: {e}, 降级到 GLM5Client")
+            self.router = None
+        
+        # v5.8: 初始化 Wind 数据供应器
+        try:
+            self.wind_provider = get_wind_provider()
+            logger.info(f"✓ Wind 数据供应器初始化成功 (Wind MCP: {'可用' if self.wind_provider._wind_available else '不可用'})")
+        except Exception as e:
+            logger.warning(f"Wind 数据供应器初始化失败: {e}")
+            self.wind_provider = None
+        
+        # 保留 GLM5Client 作为降级方案 (向后兼容)
         try:
             self.client = GLM5Client(
                 mode=self.config.get("mode", "api"),
@@ -112,89 +157,272 @@ class GLM5DecisionEngine:
                 temperature=self.config.get("temperature", 0.3),
                 max_new_tokens=self.config.get("max_tokens", 3000),
             )
-            logger.info("✓ GLM-5 决策引擎初始化成功")
+            logger.info("✓ GLM-5 客户端 (降级方案) 初始化成功")
         except Exception as e:
-            logger.error(f"GLM-5 决策引擎初始化失败: {e}")
-            raise
+            logger.error(f"GLM-5 客户端初始化失败: {e}")
+            self.client = None
         
-        # 系统提示词（金融决策优化）
-        self.system_prompt = """你是一位资深的量化交易决策官，拥有20年以上的A股交易经验。
-你的职责是根据市场数据和持仓信息，做出客观、理性的交易决策。
+        # v5.8 场景专用系统提示词
+        self._scene_prompts = {
+            "intraday_decision": """你是一位资深的量化交易决策官，拥有20年以上的A股盘中交易经验。
+你的职责是在盘中实时根据市场数据和持仓信息，做出快速、客观、理性的交易决策。
 
 决策原则:
 1. 严格遵循风控优先原则，任何交易建议必须包含风险控制
 2. 基于数据说话，不凭感觉，不追涨杀跌
 3. 仓位管理要科学，单只标的不超过10%，单一行业不超过30%
-4. 止损纪律严格执行，亏损达到8%必须减仓，达到12%必须清仓
-5. 止盈策略灵活，盈利超过15%可考虑分批止盈
+4. 止损纪律严格执行，亏损达到10%必须减仓，达到12%必须清仓
+5. 止盈策略灵活，盈利超过20%可考虑分批止盈
+
+{rag_context}
 
 输出格式要求:
 - 使用清晰的 Markdown 格式
 - 每个交易信号必须包含：代码、名称、动作、仓位变化、理由、置信度
 - 风险预警必须标注严重程度（LOW/MEDIUM/HIGH/CRITICAL）
-- 给出明确的数字建议（目标仓位、止损价位、止盈价位）
+- 给出明确的数字建议
+- 如果你对某个判断的信心低于70%，请明确标注"需人工确认"
 
 语气要求:
 - 专业、冷静、客观
-- 避免模糊表述（如"可能"、"也许"），给出明确判断
-- 数据支撑结论，引用具体数值"""
+- 简洁精炼，直奔主题（盘中时间宝贵）
+- 数据支撑结论，引用具体数值""",
+
+            "rebalancing_analysis": """你是一位资深的量化投资组合经理，拥有15年以上的A股资产配置经验。
+你的职责是对投资组合进行全面深度分析，制定科学严谨的再平衡方案。
+
+{rag_context}
+
+分析框架:
+1. 康波周期定位: 判断当前宏观周期阶段，确定大类资产配置方向
+2. 十五五规划对齐: 评估持仓与国家战略方向的匹配度
+3. 社保基金风格: 模拟国家队配置逻辑，评估防御/进攻比例
+4. 多因子评估: 估值(PE/PB)、成长性(ROE/营收增速)、质量(负债率)、动量
+5. 风险分解: 行业集中度、个股相关性、尾部风险
+
+决策原则:
+1. 长期配置为主，不因短期波动剧烈调整
+2. 再平衡触发条件: 权重偏离目标>3% 或 风险指标破位
+3. 调整时考虑交易成本(佣金+印花税+冲击成本)
+4. 保持5%以上的现金缓冲
+5. 止损-10%/止盈+20%
+
+输出格式:
+- 详细分析报告，包含多情景模拟
+- 每个调仓建议附带逻辑推理链
+- 风险矩阵完整性检查""",
+
+            "macro_analysis": """你是一位宏观策略分析师，精通康波周期、政策分析和产业趋势。
+请基于提供的市场数据和宏观指标体系，输出结构化的宏观分析报告。
+
+{rag_context}
+
+分析维度:
+1. 康波周期阶段判断与资产配置建议
+2. 十五五规划政策对齐度评估
+3. 社保基金/国家队风格信号解读
+4. 行业轮动与风格切换预判
+5. 关键风险事件与情景分析""",
+
+            "report_generation": """你是一位专业的金融报告撰写专家。
+请基于提供的数据，生成结构清晰、内容专业的{report_type}报告。
+要求: 数据准确、格式规范、结论明确、风险提示完整。""",
+
+            "light_analysis": """你是一位金融数据分类专家。
+请对以下内容进行快速分类和情感判断，仅输出结论。""",
+        }
+        
+        # 通用系统提示词 (向后兼容，非场景路由时使用)
+        self.system_prompt = """你是一位资深的量化交易分析师和投资顾问。请根据用户提供的信息：
+1. 用专业、客观的语言进行分析
+2. 给出数据支撑的结论，避免主观臆断
+3. 明确风险提示和操作建议
+4. 回复格式清晰，适合直接用于交易报告"""
 
     def make_decisions(
         self,
         market_data: Dict[str, Any],
         portfolio_data: Dict[str, Any],
         risk_rules: Optional[Dict[str, Any]] = None,
-        macro_indicators: Optional[Dict[str, Any]] = None
+        macro_indicators: Optional[Dict[str, Any]] = None,
+        scene: str = "intraday_decision",
+        include_fundamentals: Optional[bool] = None,
     ) -> DecisionResult:
         """
-        生成综合交易决策
+        生成综合交易决策 (v5.8 场景路由升级)
         
         Args:
-            market_data: 市场数据
+            market_data: 市场数据 (支持 Wind MCP 动态获取)
                 {
-                    "日期": "2026-06-23",
-                    "指数行情": {"上证指数": {"收盘": 3050, "涨跌幅": "+0.85%"}},
-                    "板块表现": {"科技": "+2.1%", "消费": "-0.5%"},
+                    "日期": "2026-06-29",
+                    "指数行情": {"上证指数": {"收盘": 3950, "涨跌幅": "+0.85%"}},
+                    "板块表现": {"高端制造": "+2.1%"},
                     "资金流向": {"北向资金": "净流入 +85亿"},
-                    "技术指标": ["MACD金叉", "RSI超买"],
                 }
             portfolio_data: 持仓数据
-                {
-                    "账户总值": 1052340,
-                    "当日盈亏": "+12850",
-                    "持仓": [
-                        {"代码": "300308", "名称": "中际旭创", "仓位": "5.2%", "成本价": 128.5, "现价": 145.3, "盈亏": "+13.1%"},
-                    ],
-                    "目标仓位": {"中际旭创": "5%", "中国神华": "4%"},
-                }
-            risk_rules: 风控规则（可选）
-                {
-                    "max_single_position": 0.10,  # 单只标的最大仓位
-                    "stop_loss_pct": -0.08,  # 止损线
-                    "take_profit_pct": 0.15,  # 止盈线
-                }
-            macro_indicators: 宏观指标（可选）
-                {
-                    "PMI": 50.5,
-                    "CPI": 2.1,
-                    "M2增速": "10.2%",
-                    "社融增量": "3.2万亿",
-                }
+            risk_rules: 风控规则
+            macro_indicators: 宏观指标
+            scene: 决策场景 (v5.8 新增)
+                - "intraday_decision": 盘中决策 (并行对冲)
+                - "rebalancing_analysis": 再平衡分析 (交叉验证+基本面RAG)
+                - "macro_analysis": 宏观综合分析
+                - "report_generation": 报告生成
+                - "light_analysis": 轻量分析
+            include_fundamentals: 是否包含基本面 RAG (None 则根据场景自动决定)
         
         Returns:
             DecisionResult 对象，包含所有交易信号和风险预警
         """
-        logger.info("开始生成交易决策...")
+        logger.info(f"[决策引擎] 开始生成交易决策, 场景={scene}")
+        
+        # v5.8: 自动决定是否包含基本面 RAG
+        if include_fundamentals is None:
+            include_fundamentals = scene in ("rebalancing_analysis", "macro_analysis")
+        
+        # v5.8: 尝试用 Wind MCP 增强市场数据 (替代硬编码)
+        if self.config.get("use_wind_mcp", True) and self.wind_provider:
+            try:
+                # 从 portfolio_data 中提取持仓代码
+                holdings_codes = []
+                positions_dict = {}
+                for holding in portfolio_data.get('持仓', []):
+                    code = holding.get('代码', '')
+                    if code:
+                        holdings_codes.append(code)
+                        positions_dict[code] = holding
+                
+                if holdings_codes:
+                    # 用 Wind MCP 动态获取指数行情
+                    wind_market = self.wind_provider.build_market_data(
+                        positions=positions_dict,
+                        include_fundamentals=include_fundamentals,
+                    )
+                    
+                    # 合并到 market_data (Wind 数据优先)
+                    if '指数行情' in wind_market:
+                        existing_indices = market_data.get('指数行情', {})
+                        for k, v in wind_market['指数行情'].items():
+                            if k not in existing_indices:
+                                existing_indices[k] = v
+                        market_data['指数行情'] = existing_indices
+                        market_data['数据来源'] = wind_market.get('数据来源', 'Wind MCP')
+                    
+                    # 如果有基本面数据，注入 RAG
+                    if '基本面数据' in wind_market and include_fundamentals:
+                        market_data['基本面数据'] = wind_market['基本面数据']
+                        logger.info(f"[Wind MCP] 已加载 {len(wind_market.get('基本面数据', {}))} 只标的基本面数据")
+                    
+                    logger.info(f"[Wind MCP] 指数行情已更新: {list(wind_market.get('指数行情', {}).keys())}")
+            except Exception as e:
+                logger.warning(f"[Wind MCP] 数据增强失败: {e}, 使用原始 market_data")
         
         # 构建决策提示词
         prompt = self._build_decision_prompt(
             market_data=market_data,
             portfolio_data=portfolio_data,
             risk_rules=risk_rules,
-            macro_indicators=macro_indicators
+            macro_indicators=macro_indicators,
         )
         
-        # 调用 GLM-5 分析
+        # v5.8: 使用多模型路由器 (替代旧的单模型调用)
+        if self.router:
+            return self._make_decision_v58(prompt, scene, market_data, portfolio_data, risk_rules)
+        else:
+            # 降级到旧版 GLM5Client 模式 (向后兼容)
+            return self._make_decision_legacy(prompt, market_data, portfolio_data, risk_rules)
+    
+    def _make_decision_v58(
+        self,
+        prompt: str,
+        scene: str,
+        market_data: Dict,
+        portfolio_data: Dict,
+        risk_rules: Optional[Dict],
+    ) -> DecisionResult:
+        """v5.8 多模型场景路由决策"""
+        system_prompt_template = self._scene_prompts.get(scene, self.system_prompt)
+        
+        # 构建 RAG 上下文
+        rag_context = ""
+        if scene in ("rebalancing_analysis", "macro_analysis"):
+            fundamental_data = market_data.get('基本面数据', {})
+            if fundamental_data:
+                rag_context = "\n\n【可用的基本面数据 (Wind MCP)】\n请充分利用以下财务数据进行分析：\n"
+                for code, info in fundamental_data.items():
+                    rag_context += (
+                        f"- {code} {info.get('名称', '')}: PE={info.get('市盈率TTM', 'N/A')}, "
+                        f"PB={info.get('市净率', 'N/A')}, ROE={info.get('ROE(%)', 'N/A')}%, "
+                        f"营收同比={info.get('营收同比(%)', 'N/A')}%, "
+                        f"利润同比={info.get('利润同比(%)', 'N/A')}%, "
+                        f"负债率={info.get('资产负债率(%)', 'N/A')}%, "
+                        f"市值={info.get('总市值(亿)', 'N/A')}亿, "
+                        f"股息率={info.get('股息率(%)', 'N/A')}%\n"
+                    )
+        
+        system_prompt = system_prompt_template.format(
+            rag_context=rag_context,
+            report_type="综合"  # 用于 report_generation
+        )
+        
+        # 构建额外上下文给路由器
+        extra_context = {
+            "fundamental_data": market_data.get('基本面数据', {}),
+            "index_data": market_data.get('指数行情', {}),
+            "macro_indicators": {},
+        }
+        
+        try:
+            routing_result = self.router.route(
+                scene=scene,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                extra_context=extra_context,
+            )
+            
+            raw_analysis = routing_result.merged_content
+            
+            logger.info(
+                f"[v5.8路由] 场景={scene}, 模型路径={routing_result.model_path}, "
+                f"延迟={routing_result.latency_ms:.0f}ms, "
+                f"置信度={routing_result.confidence:.2f}, "
+                f"一致性={routing_result.agreement}, "
+                f"成本≈${routing_result.cost_estimate:.6f}"
+            )
+            
+            # 如果有分歧点，追加到原始分析
+            if routing_result.divergent_points:
+                raw_analysis += "\n\n## ⚠️ AI 分歧警告\n"
+                for point in routing_result.divergent_points:
+                    raw_analysis += f"- {point}\n"
+            
+            # 解析决策结果
+            decision = self._parse_decision_result(
+                raw_analysis=raw_analysis,
+                market_data=market_data,
+                portfolio_data=portfolio_data,
+                risk_rules=risk_rules,
+            )
+            
+            # 补充路由元数据
+            decision.ai_confidence = max(decision.ai_confidence, routing_result.confidence)
+            
+            return decision
+            
+        except Exception as e:
+            logger.error(f"[v5.8路由] 调用失败: {e}, 降级到旧版模式")
+            return self._make_decision_legacy(prompt, market_data, portfolio_data, risk_rules)
+    
+    def _make_decision_legacy(
+        self,
+        prompt: str,
+        market_data: Dict,
+        portfolio_data: Dict,
+        risk_rules: Optional[Dict],
+    ) -> DecisionResult:
+        """v5.7 旧版决策模式 (向后兼容降级)"""
+        if not self.client:
+            return self._create_error_result("无可用模型客户端")
+        
         try:
             result = self.client.chat(
                 message=prompt,
@@ -204,21 +432,18 @@ class GLM5DecisionEngine:
             )
             
             raw_analysis = result.get("content", "")
-            logger.info(f"GLM-5 分析完成，输出 {len(raw_analysis)} 字")
+            logger.info(f"旧版模式分析完成，输出 {len(raw_analysis)} 字")
+            
+            return self._parse_decision_result(
+                raw_analysis=raw_analysis,
+                market_data=market_data,
+                portfolio_data=portfolio_data,
+                risk_rules=risk_rules,
+            )
             
         except Exception as e:
-            logger.error(f"GLM-5 分析失败: {e}")
+            logger.error(f"旧版模式分析失败: {e}")
             return self._create_error_result(str(e))
-        
-        # 解析决策结果
-        decision = self._parse_decision_result(
-            raw_analysis=raw_analysis,
-            market_data=market_data,
-            portfolio_data=portfolio_data,
-            risk_rules=risk_rules,
-        )
-        
-        return decision
     
     def _build_decision_prompt(
         self,

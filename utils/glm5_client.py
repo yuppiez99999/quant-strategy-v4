@@ -36,7 +36,7 @@ class GLM5Config:
     top_p: float = 0.9
     
     # Local GGUF 模式配置（llama-cpp-python）
-    gguf_model_path: str = r"D:\models\Qwen\Qwen2___5-72B-Instruct-GGUF\qwen2.5-72b-instruct-q5_k_m-00001-of-00014.gguf"
+    gguf_model_path: str = os.environ.get("LOCAL_LLM_MODEL_PATH", "")
     gguf_n_ctx: int = 8192
     gguf_n_gpu_layers: int = 0  # 0=纯CPU，有GPU可设为50+
     gguf_n_threads: int = 8
@@ -82,6 +82,10 @@ class GLM5Config:
             self.gguf_n_gpu_layers = int(os.environ.get("GGUF_N_GPU_LAYERS"))
 
 
+# 模型加载缓存（全局单例）
+_model_cache = {}
+
+
 class GLM5Client:
     """
     GLM-5 客户端 - 统一接口
@@ -106,7 +110,20 @@ class GLM5Client:
         self._tokenizer = None
         self._client = None
         
+        # 构建缓存键
+        cache_key = f"{self.config.mode}_{self.config.api_model}_{self.config.model_path}"
+        
         logger.info(f"初始化 GLM-5 客端, 模式={self.config.mode}")
+        
+        # 检查缓存
+        if cache_key in _model_cache:
+            cached = _model_cache[cache_key]
+            self._model = cached.get('model')
+            self._tokenizer = cached.get('tokenizer')
+            self._client = cached.get('client')
+            self._llm = cached.get('llm')
+            logger.info(f"✓ 从缓存加载模型: {cache_key}")
+            return
         
         # 根据模式初始化
         try:
@@ -120,6 +137,17 @@ class GLM5Client:
                 self._init_local_gguf()
             else:
                 raise ValueError(f"不支持的模式: {self.config.mode}")
+            
+            # 缓存模型
+            _model_cache[cache_key] = {
+                'model': self._model,
+                'tokenizer': self._tokenizer,
+                'client': self._client,
+                'llm': getattr(self, '_llm', None),
+                'config': self.config,
+            }
+            logger.info(f"✓ 模型已缓存: {cache_key}")
+            
         except Exception as e:
             logger.error(f"GLM-5 初始化失败: {e}")
             raise
@@ -218,10 +246,9 @@ class GLM5Client:
         # 检查 API 类型：豆包使用 requests，智谱使用 zhipuai SDK
         try:
             import requests
-            # 清除代理设置，避免代理连接失败
-            for k in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-                os.environ.pop(k, None)
-            os.environ['no_proxy'] = '*'
+            # 使用 Session 对象，禁用代理而不修改全局环境变量
+            session = requests.Session()
+            session.trust_env = False  # 禁用系统代理
             
             # 判断API类型：豆包API还是智谱API
             if 'ark.cn-beijing.volces.com' in self.config.api_base:
@@ -231,8 +258,10 @@ class GLM5Client:
             else:
                 self._api_type = 'volcengine'  # 默认豆包
             
-            self._client = requests
-            logger.info(f"✓ API 客户端初始化成功, 类型={self._api_type}, 模型={self.config.api_model}")
+            self._client = session
+            # API Key 脱敏输出
+            masked_key = self.config.api_key[:4] + "***" + self.config.api_key[-4:] if len(self.config.api_key) >= 8 else "***"
+            logger.info(f"✓ API 客户端初始化成功, 类型={self._api_type}, 模型={self.config.api_model}, Key={masked_key}")
         except ImportError:
             logger.warning("requests 包未安装, 请安装: pip install requests")
             raise
@@ -276,6 +305,16 @@ class GLM5Client:
         Returns:
             {"role": "assistant", "content": "...", "model": "glm-5", ...}
         """
+        # 输入参数验证
+        if not message or not message.strip():
+            raise ValueError("消息内容不能为空")
+        if len(message.strip()) > 100000:
+            raise ValueError("消息内容不能超过100000字符")
+        if temperature is not None and (temperature < 0 or temperature > 2):
+            raise ValueError("temperature 参数必须在 0-2 之间")
+        if max_tokens is not None and (max_tokens < 1 or max_tokens > 100000):
+            raise ValueError("max_tokens 参数必须在 1-100000 之间")
+        
         system_prompt = system_prompt or self.config.system_prompt
         temperature = temperature if temperature is not None else self.config.temperature
         max_tokens = max_tokens or self.config.max_new_tokens

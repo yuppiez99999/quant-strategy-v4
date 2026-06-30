@@ -32,6 +32,7 @@ pg = st.navigation({
     "🔄 交易与风控": [
         st.Page("pages/03_🔄_再平衡执行.py", title="再平衡执行"),
         st.Page("pages/05_🛡️_风险监控.py", title="风险监控"),
+        st.Page("pages/14_🔗_对冲再平衡联动.py", title="对冲再平衡联动"),
     ],
     "📈 策略分析": [
         st.Page("pages/04_📈_投资组合优化.py", title="投资组合优化"),

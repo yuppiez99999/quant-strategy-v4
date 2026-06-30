@@ -1,0 +1,72 @@
+# 板块轮动配置 v1.0
+# 康波周期四阶段 → 四板块目标权重映射
+#
+# 康波阶段来源: utils/kondratiev_cycle.py → KondratievCycleAnalyzer.get_current_phase()
+# phase_name 使用中文阶段名（与 KondratievPhase 枚举一致）
+#
+# 四板块定义（与 portfolio.yaml categories 一致）:
+#   high_end_manufacturing: 高端制造(含算力) — 中际旭创/海光信息/北方华创/中芯国际/宁德时代/徐工机械
+#   cyclical:              顺周期        — 中国神华/南山铝业/宝钢股份
+#   resources:             资源          — 华安黄金ETF/藏格矿业
+#   defensive:             防御          — 恒瑞医药/药明康德/科伦药业
+
+version: "1.0"
+description: "康波周期驱动的板块轮动配置 — 用于对冲-再平衡联动引擎"
+last_updated: "2026-06-29"
+
+# 康波阶段中文名 → 板块权重映射
+phases:
+  复苏期:
+    label: "复苏期 (Recovery)"
+    description: "信贷扩张、产能利用率回升，成长+周期风格占优"
+    risk_level: "中高"
+    sector_weights:
+      high_end_manufacturing: 0.50    # 高端制造: AI/算力复苏期爆发力最强
+      cyclical:              0.15    # 顺周期: 温和配置
+      resources:             0.20    # 资源: 铜锡白银配套需求
+      defensive:             0.15    # 防御: 低配
+
+  繁荣期:
+    label: "繁荣期 (Prosperity)"
+    description: "产能饱和、通胀温和、资产泡沫，成长+消费风格占优"
+    risk_level: "中"
+    sector_weights:
+      high_end_manufacturing: 0.45    # 高端制造: 维持高配但略降
+      cyclical:              0.20    # 顺周期: 经济扩张增配
+      resources:             0.20    # 资源: 标配
+      defensive:             0.15    # 防御: 低配
+
+  滞胀期:
+    label: "滞胀期 (Stagflation)"
+    description: "产能过剩、通胀高企、利润压缩，防御+资源风格占优"
+    risk_level: "高"
+    sector_weights:
+      high_end_manufacturing: 0.30    # 高端制造: 显著降配
+      cyclical:              0.20    # 顺周期: 维持标配
+      resources:             0.30    # 资源: 黄金/商品抗通胀
+      defensive:             0.20    # 防御: 医药避险增配
+
+  衰退期:
+    label: "衰退期 (Recession)"
+    description: "通缩、去杠杆、资产价格下跌，避险+现金风格占优"
+    risk_level: "极高"
+    sector_weights:
+      high_end_manufacturing: 0.25    # 高端制造: 大幅降配
+      cyclical:              0.15    # 顺周期: 低配
+      resources:             0.25    # 资源: 黄金避险
+      defensive:             0.35    # 防御: 医药高股息避险
+
+# 默认回退权重（无法获取康波阶段时使用）
+default_weights:
+  high_end_manufacturing: 0.45
+  cyclical:              0.20
+  resources:             0.20
+  defensive:             0.15
+
+# 触发再平衡的最小板块偏离度
+rebalance_trigger_threshold: 0.05   # 板块权重偏离 > 5% 触发战略再平衡
+
+# 阶段过渡缓冲（避免频繁切换）
+transition_buffer:
+  enabled: true
+  min_days_between_phase_changes: 30

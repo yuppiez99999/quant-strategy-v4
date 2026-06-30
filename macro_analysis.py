@@ -151,7 +151,7 @@ class MacroAnalyzer:
         
         predictions = self.predict_with_macro_factors()
         
-        initial_capital = 1000000
+        initial_capital = 3000000
         years = 10
         final_value = initial_capital * (1 + predictions['adjusted_return']) ** years
         

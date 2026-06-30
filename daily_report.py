@@ -669,7 +669,25 @@ def generate_daily_report(portfolio_file='config/portfolio.yaml', report_file=No
         try:
             llm_analyzer = LLMReportAnalyzer()
             llm_analysis = llm_analyzer.analyze_report('\n'.join(report_lines))
-            llm_report_text = format_llm_analysis_for_report(llm_analysis)
+
+            if llm_analysis.get('mock'):
+                # LLM API Key 不可用 → 尝试本地ML量化模型替代
+                try:
+                    from utils.ml_predictor import run_ml_signal_scan
+                    model_dir = os.path.join(os.path.dirname(__file__), 'models')
+                    data_dir = os.path.join(os.path.dirname(__file__), 'data', 'cache')
+                    ml_result = run_ml_signal_scan(data_dir=data_dir, model_dir=model_dir, threshold=0.55)
+                    if 'error' not in ml_result:
+                        from llm_report_analyzer import generate_local_ml_analysis
+                        llm_report_text = generate_local_ml_analysis(ml_result)
+                        logging.getLogger('DailyReport').info("LLM不可用，已切换为本地ML量化模型分析")
+                    else:
+                        llm_report_text = format_llm_analysis_for_report(llm_analysis)
+                except Exception:
+                    llm_report_text = format_llm_analysis_for_report(llm_analysis)
+            else:
+                llm_report_text = format_llm_analysis_for_report(llm_analysis)
+
             report_lines.append(llm_report_text)
         except Exception as e:
             import traceback

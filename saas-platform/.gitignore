@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.env
+.vite/
+data/
+logs/
+__pycache__/
+*.pyc
+.venv/

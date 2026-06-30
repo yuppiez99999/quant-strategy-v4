@@ -75,17 +75,39 @@ def create_workflow(selected_analysts: list[str] = None):
             workflow.add_node(node_name, node_func)
             workflow.add_edge("start_node", node_name)
 
-    # 风控 + 组合管理
+    # 风控 + 组合管理 + 对冲分析
     workflow.add_node("risk_management_agent", risk_management_agent)
     workflow.add_node("portfolio_manager", portfolio_management_agent)
+    
+    # 对冲分析师 — 在组合决策之后进行对冲覆盖
+    hedge_key = "hedge_analyst"
+    hedge_node_name = None
+    if hedge_key in analyst_nodes:
+        hedge_node_name = analyst_nodes[hedge_key][0]
+        workflow.add_node(hedge_node_name, analyst_nodes[hedge_key][1])
 
     for analyst_key in selected_analysts:
         if analyst_key in analyst_nodes:
             node_name = analyst_nodes[analyst_key][0]
+            if analyst_key == hedge_key:
+                continue  # 对冲分析师单独连接
             workflow.add_edge(node_name, "risk_management_agent")
 
     workflow.add_edge("risk_management_agent", "portfolio_manager")
-    workflow.add_edge("portfolio_manager", END)
+    
+    if hedge_node_name:
+        # 对冲分析师: 同时接收 分析师信号 + portfolio_manager 输出
+        for analyst_key in selected_analysts:
+            if analyst_key in analyst_nodes and analyst_key not in (
+                hedge_key, "risk_manager", "portfolio_manager"
+            ):
+                node_name = analyst_nodes[analyst_key][0]
+                workflow.add_edge(node_name, hedge_node_name)
+        workflow.add_edge("portfolio_manager", hedge_node_name)
+        workflow.add_edge(hedge_node_name, END)
+    else:
+        workflow.add_edge("portfolio_manager", END)
+    
     workflow.set_entry_point("start_node")
 
     return workflow
@@ -190,10 +212,16 @@ def run_ai_hedge_fund(
         })
 
         decisions = parse_hedge_fund_response(final_state["messages"][-1].content)
+        signals = final_state["data"]["analyst_signals"]
+        
+        # 提取对冲分析师信号
+        hedge_signal = signals.get("hedge_analyst_agent", {})
+        
         return {
             'success': True,
             'decisions': decisions or {},
-            'analyst_signals': final_state["data"]["analyst_signals"],
+            'analyst_signals': signals,
+            'hedge_signal': hedge_signal,
             'tickers': tickers,
             'period': f"{start_date} ~ {end_date}",
         }
@@ -221,6 +249,7 @@ def print_trading_output(result: dict):
 
     decisions = result.get('decisions', {})
     signals = result.get('analyst_signals', {})
+    hedge_signal = result.get('hedge_signal', {})
 
     print("\n" + "=" * 60)
     print("  🤖 AI Hedge Fund — 多分析师决策报告")
@@ -234,7 +263,8 @@ def print_trading_output(result: dict):
     for agent_id, agent_signals in signals.items():
         if agent_id in ("risk_management_agent",):
             continue
-        print(f"\n  [{agent_id.replace('_agent', '').replace('_', ' ').title()}]")
+        display_name = agent_id.replace('_agent', '').replace('_', ' ').title()
+        print(f"\n  [{display_name}]")
         for ticker, sig in agent_signals.items():
             signal = sig.get('signal', '?')
             conf = sig.get('confidence', 0)
@@ -254,6 +284,34 @@ def print_trading_output(result: dict):
                 reason = decision.get('reasoning', '')
                 emoji = {'buy': '📈', 'sell': '📉', 'short': '🔻', 'cover': '📤', 'hold': '⏸️'}.get(action, '❓')
                 print(f"  {emoji} {ticker}: {action.upper()} x{qty} (信心:{conf}%) — {reason[:80]}")
+
+    # 打印对冲建议
+    if hedge_signal and hedge_signal.get("hedge_ratio", 0) > 0:
+        print("\n🛡️ 对冲策略建议 (Taleb+Burry+Druckenmiller):")
+        print("-" * 60)
+        print(f"  对冲决策: {hedge_signal.get('signal', 'neutral')}")
+        print(f"  对冲比率: {hedge_signal.get('hedge_ratio', 0)*100:.0f}%")
+        print(f"  紧急程度: {hedge_signal.get('urgency_score', 0)*100:.0f}%")
+        reasoning = hedge_signal.get('reasoning', '')
+        if reasoning:
+            try:
+                import json
+                r = json.loads(reasoning)
+                if 'hedge_recommendation' in r:
+                    rec = r['hedge_recommendation']
+                    print(f"  推荐工具: {rec.get('preferred_instrument', 'N/A')}")
+                    if rec.get('futures_contracts'):
+                        print(f"  期货合约: {rec['futures_contracts']}")
+                    if rec.get('options_strategy') not in (None, 'NONE'):
+                        print(f"  期权策略: {rec.get('options_strategy', '')} x {rec.get('options_contracts', 0)}张")
+                    print(f"  执行时机: {rec.get('execution_timing', '')}")
+                if 'risk_warnings' in r:
+                    for w in r['risk_warnings']:
+                        print(f"  ⚠️ {w}")
+            except (json.JSONDecodeError, KeyError):
+                if len(reasoning) > 120:
+                    reasoning = reasoning[:120] + "..."
+                print(f"  详情: {reasoning}")
 
     print("=" * 60)
 

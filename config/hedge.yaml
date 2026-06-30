@@ -1,0 +1,113 @@
+# -*- coding: utf-8 -*-
+# 对冲配置 — v5.8 指数期货/期权对冲策略
+
+# 对冲触发阈值
+trigger:
+  min_beta_csi300: 0.8          # 组合沪深300Beta超过此值触发对冲评估
+  min_concentration_hhi: 0.12   # 集中度HHI超过此值触发
+  min_var_pct: 0.015            # 日VaR(95%)超过总资产此比例触发 (1.5%)
+  panic_index_threshold: 0.6    # 市场恐慌指数阈值
+
+# 对冲强度映射
+strength:
+  light:
+    ratio: 0.25                 # 对冲25%股票敞口
+    description: "轻度保护 — 市场有疑虑但不恐慌"
+  moderate:
+    ratio: 0.50                 # 对冲50%股票敞口
+    description: "中度保护 — 系统性风险升高"
+  strong:
+    ratio: 0.75                 # 对冲75%股票敞口
+    description: "强力保护 — 尾部风险显著"
+  full:
+    ratio: 1.0                  # 完全对冲
+    description: "全面保护 — 黑天鹅威胁"
+
+# 股指期货配置
+futures:
+  # 品种优先级: 按组合Beta匹配度自动选择
+  priority: ["IF", "IC", "IM", "IH"]
+  
+  IF:
+    name: "沪深300股指期货"
+    multiplier: 300
+    margin_pct: 0.12
+    description: "适合沪深300高Beta组合"
+    
+  IC:
+    name: "中证500股指期货"
+    multiplier: 200
+    margin_pct: 0.14
+    description: "适合中盘成长型组合"
+    
+  IM:
+    name: "中证1000股指期货"
+    multiplier: 200
+    margin_pct: 0.15
+    description: "适合小盘股组合"
+    
+  IH:
+    name: "上证50股指期货"
+    multiplier: 300
+    margin_pct: 0.12
+    description: "适合大蓝筹组合"
+
+# 期权策略配置
+options:
+  # 策略选择优先级
+  strategies:
+    - protective_put    # 买入保护性看跌 (最简单直接)
+    - put_spread        # 看跌价差 (降低成本)
+    - collar            # 领口策略 (零成本但限制上行)
+    
+  protective_put:
+    description: "买入ATM或轻度OTM看跌期权, 下跌保护, 上行不封顶"
+    pro: "最佳保护效果, 保留全部上行空间"
+    con: "持续支付权利金, 成本较高"
+    suitable: "强烈看跌预期, 愿意为保护付费"
+    
+  put_spread:
+    description: "买入ATM Put + 卖出OTM Put, 限定保护范围"
+    pro: "成本低于纯Put, 保护主要跌幅"
+    con: "极端暴跌时保护有限"
+    suitable: "温和看跌, 追求成本效益"
+    
+  collar:
+    description: "买入OTM Put + 卖出OTM Call, 零成本或低成本"
+    pro: "几乎零成本对冲"
+    con: "上行收益被封顶"
+    suitable: "横盘/温和下跌, 不看好大涨"
+
+# 保证金管理
+margin:
+  max_margin_pct: 0.20          # 保证金不超过总资产20%
+  min_cash_reserve: 100_000     # 最低现金留存
+
+# 对冲效果评估
+evaluation:
+  lookback_days: 20
+  min_effectiveness: 0.5        # 最小对冲效率(对冲后波动率降低比例)
+  max_tracking_error: 0.05      # 最大跟踪误差
+
+# 对冲执行规则
+execution:
+  min_contracts: 1              # 最小合约数量
+  round_lot: 1                  # 合约倍数(股指期货为1)
+  max_slippage_pct: 0.005       # 最大滑点
+  
+  # 触发条件
+  triggers:
+    - "组合Beta > 1.2 且市场VIX上升 > 20%"
+    - "日VaR(95%) > 总资产 2.5%"
+    - "集中度HHI > 0.20"
+    - "技术面: 大盘跌破60日均线"
+    - "宏观: 央行加息/缩表信号"
+    - "事件: 地缘政治升级/黑天鹅事件"
+
+# AI对冲分析师配置
+ai_hedge_analyst:
+  enabled: true
+  model: "deepseek-chat"        # 默认LLM模型
+  provider: "DeepSeek"
+  fallback_to_rules: true       # LLM不可用时回退规则引擎
+  confidence_threshold: 60      # AI建议低于此置信度时仅提示+人工判断

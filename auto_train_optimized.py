@@ -32,9 +32,18 @@ if sys.platform == 'win32':
 class OptimizedAutoTrainer:
     """优化版自动训练器"""
     
-    def __init__(self, output_dir='models'):
+    def __init__(self, output_dir='models', label_threshold=0.01):
+        """
+        Args:
+            output_dir: 模型输出目录
+            label_threshold: 三分类阈值，默认0.01(1%)
+                |return| < threshold → 震荡(label=1)
+                return <= -threshold → 跌(label=0)
+                return >= threshold → 涨(label=2)
+        """
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+        self.label_threshold = label_threshold
         self.models = {}
         self.results = {}
         self.feature_cols = []
@@ -101,7 +110,7 @@ class OptimizedAutoTrainer:
             
             if 'close' not in group.columns:
                 continue
-            
+
             group['close'] = pd.to_numeric(group['close'], errors='coerce')
             group = group.dropna(subset=['close'])
             
@@ -179,15 +188,59 @@ class OptimizedAutoTrainer:
                 group['open'] = pd.to_numeric(group['open'], errors='coerce')
                 group['open_close_diff'] = group['close'] - group['open']
                 group['gap'] = group['open'] - group['close'].shift(1)
+                group['open_close_ratio'] = group['open'] / group['close']
+                group['gap_ratio'] = group['gap'] / group['close'].shift(1)
+            
+            group['atr_14'] = self._calculate_atr(group, period=14)
+            group['atr_20'] = self._calculate_atr(group, period=20)
+            group['atr_ratio'] = group['atr_14'] / group['close']
+            
+            group['cci'] = self._calculate_cci(group, period=14)
+            group['cci_20'] = self._calculate_cci(group, period=20)
+            
+            group['wr'] = self._calculate_wr(group, period=14)
+            group['wr_6'] = self._calculate_wr(group, period=6)
+            
+            group['obv'] = self._calculate_obv(group)
+            group['obv_ma_5'] = group['obv'].rolling(5).mean()
+            group['obv_ma_20'] = group['obv'].rolling(20).mean()
+            group['obv_ratio'] = group['obv'] / group['obv_ma_20']
+            
+            group['mfi'] = self._calculate_mfi(group, period=14)
+            
+            group['ichimoku_conversion'] = (group['high'].rolling(9).max() + group['low'].rolling(9).min()) / 2
+            group['ichimoku_base'] = (group['high'].rolling(26).max() + group['low'].rolling(26).min()) / 2
+            group['ichimoku_span_a'] = (group['ichimoku_conversion'] + group['ichimoku_base']) / 2
+            group['ichimoku_span_b'] = (group['high'].rolling(52).max() + group['low'].rolling(52).min()) / 2
+            group['ichimoku_diff'] = group['close'] - group['ichimoku_base']
+            
+            group['returns_ma5'] = group['returns'].rolling(5).mean()
+            group['returns_ma20'] = group['returns'].rolling(20).mean()
+            group['returns_ma60'] = group['returns'].rolling(60).mean()
+            
+            group['volatility_ma5'] = group['volatility_5'].rolling(5).mean()
+            group['volatility_ma20'] = group['volatility_20'].rolling(20).mean()
             
             group['rsi_volatility'] = group['rsi'] * group['volatility_20']
             group['momentum_volatility'] = group['momentum_20'] * group['volatility_20']
             group['macd_rsi'] = group['macd'] * group['rsi']
             group['boll_momentum'] = group['boll_width'] * group['momentum_20']
             group['trend_rsi'] = group['trend_20'] * group['rsi']
+            group['rsi_mfi'] = group['rsi'] * group['mfi']
+            group['volatility_volume'] = group['volatility_20'] * group.get('volume_ratio', 1)
+            group['trend_volatility'] = group['trend_20'] * group['volatility_20']
+            group['macd_trend'] = group['macd'] * group['trend_20']
             
-            group['label_up'] = (group['returns'].shift(-1) > 0).astype(int)
-            
+            # 三分类标签：0=跌(<-thr), 1=震荡, 2=涨(>thr)
+            # 过滤震荡日后信号质量更高，交易决策更明确
+            future_return = group['returns'].shift(-1)
+            threshold = self.label_threshold
+            group['label_up'] = pd.cut(
+                future_return,
+                bins=[-np.inf, -threshold, threshold, np.inf],
+                labels=[0, 1, 2]
+            ).astype(float)
+
             features.append(group)
         
         if not features:
@@ -206,14 +259,23 @@ class OptimizedAutoTrainer:
             'momentum_5', 'momentum_10', 'momentum_20', 'momentum_60',
             'trend_5', 'trend_20', 'trend_60',
             'vwap', 'price_vwap_diff', 'price_vwap_ratio',
+            'atr_14', 'atr_20', 'atr_ratio',
+            'cci', 'cci_20',
+            'wr', 'wr_6',
+            'obv', 'obv_ma_5', 'obv_ma_20', 'obv_ratio',
+            'mfi',
+            'ichimoku_conversion', 'ichimoku_base', 'ichimoku_diff',
+            'returns_ma5', 'returns_ma20', 'returns_ma60',
+            'volatility_ma5', 'volatility_ma20',
             'label_up'
         ]
         
         additional_features = [
             'volume_ratio', 'volume_ma_ratio', 'volume_change',
             'range', 'range_ratio', 'upper_shadow', 'lower_shadow',
-            'open_close_diff', 'gap',
-            'rsi_volatility', 'momentum_volatility', 'macd_rsi', 'boll_momentum', 'trend_rsi'
+            'open_close_diff', 'gap', 'open_close_ratio', 'gap_ratio',
+            'rsi_volatility', 'momentum_volatility', 'macd_rsi', 'boll_momentum', 'trend_rsi',
+            'rsi_mfi', 'volatility_volume', 'trend_volatility', 'macd_trend'
         ]
         
         available_cols = [col for col in base_features if col in df_features.columns]
@@ -222,15 +284,71 @@ class OptimizedAutoTrainer:
                 available_cols.append(col)
         
         df_features = df_features[available_cols]
-        df_features = df_features.dropna(subset=available_cols)
+        
+        # 只丢弃标签为NaN的行（即最后一天无法计算shift(-1)的行）
+        df_features = df_features.dropna(subset=['label_up'])
+        
+        # 对特征列中的NaN/Inf进行填充，而非丢弃行
+        feature_cols_no_label = [c for c in available_cols if c != 'label_up']
+        df_features[feature_cols_no_label] = df_features[feature_cols_no_label].replace([np.inf, -np.inf], np.nan)
+        df_features[feature_cols_no_label] = df_features[feature_cols_no_label].fillna(0)
         
         self.feature_cols = [col for col in base_features + additional_features if col in df_features.columns and col != 'label_up']
-        
+
         print(f'[FEATURE] 使用 {len(self.feature_cols)} 个特征')
         print(f'[DATA] 样本数: {len(df_features)}')
-        
+        # 三分类标签分布
+        label_dist = df_features['label_up'].value_counts().sort_index()
+        print(f'[LABEL] 三分类标签分布 (阈值±{self.label_threshold:.1%}):')
+        for label, cnt in label_dist.items():
+            pct = cnt / len(df_features)
+            name = {0.0: '跌', 1.0: '震荡', 2.0: '涨'}.get(label, str(label))
+            print(f'  {name}(label={int(label)}): {cnt:>6} ({pct:.1%})')
+        # 涨跌两端样本占比（用于评估信号覆盖率）
+        non_neutral = (df_features['label_up'] != 1).sum()
+        print(f'[LABEL] 涨跌两端样本: {non_neutral} ({non_neutral/len(df_features):.1%}) | 震荡日: {len(df_features)-non_neutral}')
+
         return df_features, self.feature_cols
-    
+
+    def _evaluate_multiclass(self, y_test, y_pred, y_prob):
+        """三分类评估：总体准确率 + macro F1 + macro AUC + 涨跌两端准确率
+
+        Args:
+            y_test: 真实标签 (0=跌, 1=震荡, 2=涨)
+            y_pred: 预测标签
+            y_prob: 预测概率 (n_samples, 3)
+
+        Returns:
+            dict: accuracy, f1, auc, directional_accuracy (涨跌两端准确率), coverage
+        """
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average='macro')
+        # macro AUC: 一对多平均，需要每个类别都有正负样本
+        try:
+            n_classes = y_prob.shape[1]
+            if n_classes == 3 and len(np.unique(y_test)) == 3:
+                auc = roc_auc_score(y_test, y_prob, multi_class='ovr', average='macro')
+            else:
+                auc = 0
+        except Exception:
+            auc = 0
+
+        # 涨跌两端准确率：过滤震荡日(label=1)后，只看涨跌两端预测对错
+        mask = y_test != 1
+        coverage = mask.mean()  # 信号覆盖率
+        if mask.sum() > 0:
+            dir_acc = accuracy_score(y_test[mask], y_pred[mask])
+        else:
+            dir_acc = 0
+
+        return {
+            'accuracy': accuracy,
+            'f1': f1,
+            'auc': auc,
+            'directional_accuracy': dir_acc,
+            'coverage': coverage,
+        }
+
     def _calculate_rsi(self, prices, period=14):
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(period).mean()
@@ -239,7 +357,61 @@ class OptimizedAutoTrainer:
         rsi = 100 - (100 / (1 + rs))
         return rsi
     
-    def select_features(self, X, y, k=20, method='mutual_info'):
+    def _calculate_atr(self, group, period=14):
+        high = group.get('high', group['close'])
+        low = group.get('low', group['close'])
+        prev_close = group['close'].shift(1)
+        
+        tr1 = high - low
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        atr = tr.rolling(period).mean()
+        return atr
+    
+    def _calculate_cci(self, group, period=14):
+        high = group.get('high', group['close'])
+        low = group.get('low', group['close'])
+        tp = (high + low + group['close']) / 3
+        
+        tp_mean = tp.rolling(period).mean()
+        tp_std = tp.rolling(period).std()
+        
+        cci = (tp - tp_mean) / (0.015 * tp_std)
+        return cci
+    
+    def _calculate_wr(self, group, period=14):
+        high = group.get('high', group['close'])
+        low = group.get('low', group['close'])
+        
+        highest_high = high.rolling(period).max()
+        lowest_low = low.rolling(period).min()
+        
+        wr = ((highest_high - group['close']) / (highest_high - lowest_low)) * -100
+        return wr
+    
+    def _calculate_obv(self, group):
+        volume = group.get('volume', 1)
+        direction = group['returns'].apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+        obv = (volume * direction).cumsum()
+        return obv
+    
+    def _calculate_mfi(self, group, period=14):
+        high = group.get('high', group['close'])
+        low = group.get('low', group['close'])
+        volume = group.get('volume', 1)
+        
+        tp = (high + low + group['close']) / 3
+        raw_mf = tp * volume
+        
+        positive_mf = raw_mf.where(group['returns'] > 0, 0).rolling(period).sum()
+        negative_mf = raw_mf.where(group['returns'] < 0, 0).rolling(period).sum()
+        
+        mfi = 100 - (100 / (1 + positive_mf / negative_mf))
+        return mfi
+    
+    def select_features(self, X, y, k=25, method='mutual_info'):
         print(f'\n[FEATURE SELECTION] 使用SelectKBest ({method}), 选择top {k}个特征...')
         
         if method == 'f_classif':
@@ -271,109 +443,152 @@ class OptimizedAutoTrainer:
         return X_selected
     
     def train_baseline_models(self, X, y):
-        print('\n[TRAIN] 训练基准模型...')
+        print('\n[TRAIN] 训练基准模型（时间序列分割，无数据泄漏）...')
         
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        # 时间序列分割：前80%训练，后20%测试，避免未来数据泄漏
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        print(f'  [SPLIT] 训练集: {len(X_train)} | 测试集: {len(X_test)}')
         
         baseline_models = {
             'GradientBoosting': GradientBoostingClassifier(
-                n_estimators=300, max_depth=6, learning_rate=0.05, random_state=42
+                n_estimators=500, max_depth=8, learning_rate=0.03, random_state=42,
+                subsample=0.8, min_samples_split=5
             ),
             'ExtraTrees': ExtraTreesClassifier(
-                n_estimators=300, max_depth=12, random_state=42, n_jobs=-1, class_weight='balanced'
+                n_estimators=500, max_depth=15, random_state=42, n_jobs=-1,
+                class_weight='balanced', min_samples_split=5
+            ),
+            'RandomForest': RandomForestClassifier(
+                n_estimators=500, max_depth=12, random_state=42, n_jobs=-1,
+                class_weight='balanced', min_samples_split=5
             ),
             'LogisticRegression': LogisticRegression(
-                max_iter=2000, random_state=42, C=0.5, class_weight='balanced'
+                max_iter=3000, random_state=42, C=0.1, class_weight='balanced'
             ),
         }
         
         results = {}
+        train_probs = {}
+        test_probs = {}
         for name, model in baseline_models.items():
             print(f'\n[{name}] 训练中...')
             model.fit(X_train, y_train)
             y_pred = model.predict(X_test)
-            accuracy = accuracy_score(y_test, y_pred)
-            f1 = f1_score(y_test, y_pred)
-            roc_auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1]) if hasattr(model, 'predict_proba') else 0
-            
-            print(f'  [OK] 准确率: {accuracy:.2%}, F1: {f1:.4f}, AUC: {roc_auc:.4f}')
+            y_prob_all = model.predict_proba(X_test) if hasattr(model, 'predict_proba') else None
+            eval_metrics = self._evaluate_multiclass(y_test, y_pred, y_prob_all)
+            accuracy = eval_metrics['accuracy']
+            f1 = eval_metrics['f1']
+            roc_auc = eval_metrics['auc']
+            dir_acc = eval_metrics['directional_accuracy']
+
+            print(f'  [OK] 准确率: {accuracy:.2%}, F1(macro): {f1:.4f}, AUC(macro): {roc_auc:.4f}')
+            print(f'  [DIR] 涨跌两端准确率: {dir_acc:.2%} (覆盖率 {eval_metrics["coverage"]:.1%})')
             self.models[name] = model
-            results[name] = {'accuracy': accuracy, 'f1': f1, 'auc': roc_auc}
-        
-        return results
+            results[name] = {
+                'accuracy': accuracy, 'f1': f1, 'auc': roc_auc,
+                'directional_accuracy': dir_acc,
+                'coverage': eval_metrics['coverage'],
+            }
+            # 保留所有类别概率 (n, 3) 用于 Stacking
+            train_probs[name] = model.predict_proba(X_train)
+            test_probs[name] = y_prob_all
+
+        return results, (X_train, X_test, y_train, y_test), train_probs, test_probs
     
-    def tune_xgboost(self, X, y):
+    def tune_xgboost(self, X, y, split_data=None):
         print('\n[GRID SEARCH] XGBoost超参数调优...')
         
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        if split_data:
+            X_train, X_test, y_train, y_test = split_data
+        else:
+            split_idx = int(len(X) * 0.8)
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
         
+        # 缩小搜索空间，用RandomizedSearchCV替代GridSearchCV加速
+        from sklearn.model_selection import RandomizedSearchCV
         param_grid = {
-            'max_depth': [4, 5],
-            'learning_rate': [0.05],
-            'n_estimators': [200],
-            'subsample': [0.8],
-            'colsample_bytree': [0.8],
-            'reg_lambda': [1.0],
-            'min_child_weight': [1],
+            'max_depth': [4, 5, 6, 7],
+            'learning_rate': [0.02, 0.05, 0.1],
+            'n_estimators': [200, 300, 500],
+            'subsample': [0.7, 0.8, 0.9],
+            'colsample_bytree': [0.7, 0.8, 0.9],
+            'reg_lambda': [0.5, 1.0, 2.0],
+            'min_child_weight': [1, 3, 5],
+            'gamma': [0, 0.1, 0.2],
         }
         
         base_model = xgb.XGBClassifier(
             random_state=42,
-            eval_metric='logloss',
+            eval_metric='mlogloss',
             use_label_encoder=False,
-            scale_pos_weight=len(y_train[y_train==0])/len(y_train[y_train==1])
         )
-        
-        skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
-        grid_search = GridSearchCV(
+
+        # 使用时间序列交叉验证
+        from sklearn.model_selection import TimeSeriesSplit
+        tscv = TimeSeriesSplit(n_splits=3)
+        random_search = RandomizedSearchCV(
             estimator=base_model,
-            param_grid=param_grid,
-            cv=skf,
-            scoring='f1',
+            param_distributions=param_grid,
+            n_iter=20,
+            cv=tscv,
+            scoring='f1_macro',
             n_jobs=1,
-            verbose=1
+            verbose=1,
+            random_state=42
         )
-        
-        grid_search.fit(X_train, y_train)
-        
-        print(f'\n[GRID SEARCH] XGBoost最佳参数: {grid_search.best_params_}')
-        print(f'[GRID SEARCH] XGBoost最佳交叉验证F1: {grid_search.best_score_:.4f}')
-        
-        best_model = grid_search.best_estimator_
+
+        random_search.fit(X_train, y_train)
+
+        print(f'\n[GRID SEARCH] XGBoost最佳参数: {random_search.best_params_}')
+        print(f'[GRID SEARCH] XGBoost最佳交叉验证F1(macro): {random_search.best_score_:.4f}')
+
+        best_model = random_search.best_estimator_
         y_pred = best_model.predict(X_test)
-        y_prob = best_model.predict_proba(X_test)[:, 1]
-        
-        accuracy = accuracy_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred)
-        roc_auc = roc_auc_score(y_test, y_prob)
-        
-        print(f'[GRID SEARCH] XGBoost测试集: 准确率 {accuracy:.2%}, F1 {f1:.4f}, AUC {roc_auc:.4f}')
-        
+        y_prob_all = best_model.predict_proba(X_test)
+
+        eval_metrics = self._evaluate_multiclass(y_test, y_pred, y_prob_all)
+        accuracy = eval_metrics['accuracy']
+        f1 = eval_metrics['f1']
+        roc_auc = eval_metrics['auc']
+        dir_acc = eval_metrics['directional_accuracy']
+
+        print(f'[GRID SEARCH] XGBoost测试集: 准确率 {accuracy:.2%}, F1(macro) {f1:.4f}, AUC(macro) {roc_auc:.4f}')
+        print(f'[GRID SEARCH] XGBoost涨跌两端准确率: {dir_acc:.2%} (覆盖率 {eval_metrics["coverage"]:.1%})')
+
+        train_prob = best_model.predict_proba(X_train)
+        test_prob = y_prob_all
+
         return best_model, {
             'accuracy': accuracy, 'f1': f1, 'auc': roc_auc,
-            'params': grid_search.best_params_
-        }
+            'directional_accuracy': dir_acc,
+            'coverage': eval_metrics['coverage'],
+            'params': random_search.best_params_
+        }, train_prob, test_prob
     
-    def tune_lightgbm(self, X, y):
+    def tune_lightgbm(self, X, y, split_data=None):
         print('\n[GRID SEARCH] LightGBM超参数调优...')
         
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        if split_data:
+            X_train, X_test, y_train, y_test = split_data
+        else:
+            split_idx = int(len(X) * 0.8)
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
         
+        from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
         param_grid = {
-            'max_depth': [4, 5],
-            'learning_rate': [0.05],
-            'n_estimators': [200],
-            'subsample': [0.8],
-            'colsample_bytree': [0.8],
-            'reg_alpha': [0.1],
-            'reg_lambda': [1.0],
-            'min_child_samples': [20],
+            'max_depth': [4, 5, 6, 7],
+            'learning_rate': [0.02, 0.05, 0.1],
+            'n_estimators': [200, 300, 500],
+            'subsample': [0.7, 0.8, 0.9],
+            'colsample_bytree': [0.7, 0.8, 0.9],
+            'reg_alpha': [0.01, 0.1, 1.0],
+            'reg_lambda': [0.5, 1.0, 2.0],
+            'min_child_samples': [10, 20, 30],
+            'num_leaves': [31, 63, 127],
         }
         
         base_model = lgb.LGBMClassifier(
@@ -382,35 +597,87 @@ class OptimizedAutoTrainer:
             verbose=-1
         )
         
-        skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
-        grid_search = GridSearchCV(
+        tscv = TimeSeriesSplit(n_splits=3)
+        random_search = RandomizedSearchCV(
             estimator=base_model,
-            param_grid=param_grid,
-            cv=skf,
-            scoring='f1',
+            param_distributions=param_grid,
+            n_iter=20,
+            cv=tscv,
+            scoring='f1_macro',
             n_jobs=1,
-            verbose=1
+            verbose=1,
+            random_state=42
         )
-        
-        grid_search.fit(X_train, y_train)
-        
-        print(f'\n[GRID SEARCH] LightGBM最佳参数: {grid_search.best_params_}')
-        print(f'[GRID SEARCH] LightGBM最佳交叉验证F1: {grid_search.best_score_:.4f}')
-        
-        best_model = grid_search.best_estimator_
+
+        random_search.fit(X_train, y_train)
+
+        print(f'\n[GRID SEARCH] LightGBM最佳参数: {random_search.best_params_}')
+        print(f'[GRID SEARCH] LightGBM最佳交叉验证F1(macro): {random_search.best_score_:.4f}')
+
+        best_model = random_search.best_estimator_
         y_pred = best_model.predict(X_test)
-        y_prob = best_model.predict_proba(X_test)[:, 1]
+        y_prob_all = best_model.predict_proba(X_test)
+
+        eval_metrics = self._evaluate_multiclass(y_test, y_pred, y_prob_all)
+        accuracy = eval_metrics['accuracy']
+        f1 = eval_metrics['f1']
+        roc_auc = eval_metrics['auc']
+        dir_acc = eval_metrics['directional_accuracy']
+
+        print(f'[GRID SEARCH] LightGBM测试集: 准确率 {accuracy:.2%}, F1(macro) {f1:.4f}, AUC(macro) {roc_auc:.4f}')
+        print(f'[GRID SEARCH] LightGBM涨跌两端准确率: {dir_acc:.2%} (覆盖率 {eval_metrics["coverage"]:.1%})')
+
+        train_prob = best_model.predict_proba(X_train)
+        test_prob = y_prob_all
+
+        return best_model, {
+            'accuracy': accuracy, 'f1': f1, 'auc': roc_auc,
+            'directional_accuracy': dir_acc,
+            'coverage': eval_metrics['coverage'],
+            'params': random_search.best_params_
+        }, train_prob, test_prob
+    
+    def build_stacking_ensemble(self, train_probs, test_probs, y_train, y_test):
+        """Stacking集成：用LogisticRegression作为元学习器融合多个基模型的预测概率"""
+        print('\n[STACKING] 构建Stacking集成模型...')
+        
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+        
+        # 将各模型的预测概率堆叠为特征矩阵
+        train_stack = np.column_stack(list(train_probs.values()))
+        test_stack = np.column_stack(list(test_probs.values()))
+        
+        model_names = list(train_probs.keys())
+        print(f'  [STACK] 基模型: {", ".join(model_names)}')
+        
+        # 元学习器：用简单的LogisticRegression避免过拟合
+        meta_model = LogisticRegression(
+            max_iter=2000, C=0.5, random_state=42, class_weight='balanced'
+        )
+        meta_model.fit(train_stack, y_train)
+        
+        # 输出各模型权重
+        weights = meta_model.coef_[0]
+        print(f'  [STACK] 模型权重:')
+        for name, weight in zip(model_names, weights):
+            print(f'    {name}: {weight:.4f}')
+        
+        # 评估
+        y_pred = meta_model.predict(test_stack)
+        y_prob = meta_model.predict_proba(test_stack)[:, 1]
         
         accuracy = accuracy_score(y_test, y_pred)
         f1 = f1_score(y_test, y_pred)
         roc_auc = roc_auc_score(y_test, y_prob)
         
-        print(f'[GRID SEARCH] LightGBM测试集: 准确率 {accuracy:.2%}, F1 {f1:.4f}, AUC {roc_auc:.4f}')
+        print(f'  [STACK] 准确率: {accuracy:.2%}, F1: {f1:.4f}, AUC: {roc_auc:.4f}')
         
-        return best_model, {
+        return meta_model, {
             'accuracy': accuracy, 'f1': f1, 'auc': roc_auc,
-            'params': grid_search.best_params_
-        }
+            'model_weights': dict(zip(model_names, weights.tolist()))
+        }, train_stack, test_stack
     
     def save_models(self, saved_items):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -498,14 +765,14 @@ def main():
     
     trainer = OptimizedAutoTrainer(output_dir='models')
     
-    print('\n【步骤1/6】加载数据')
+    print('\n【步骤1/7】加载数据')
     print('-'*70)
     df = trainer.load_data()
     if df is None:
         print('\n[ERROR] 数据加载失败,退出训练')
         sys.exit(1)
     
-    print('\n【步骤2/6】特征工程')
+    print('\n【步骤2/7】特征工程')
     print('-'*70)
     X_y, feature_cols = trainer.engineer_features(df)
     if X_y is None:
@@ -518,31 +785,46 @@ def main():
     X = X.replace([np.inf, -np.inf], np.nan)
     X = X.fillna(0)
     
-    print('\n【步骤3/6】特征选择 (SelectKBest)')
+    print('\n【步骤3/7】特征选择 (SelectKBest)')
     print('-'*70)
-    X_selected = trainer.select_features(X, y, k=20)
+    X_selected = trainer.select_features(X, y, k=25)
     
-    print('\n【步骤4/6】训练基准模型')
+    print('\n【步骤4/7】训练基准模型（时间序列分割）')
     print('-'*70)
-    baseline_results = trainer.train_baseline_models(X_selected, y)
+    baseline_results, split_data, train_probs, test_probs = trainer.train_baseline_models(X_selected, y)
     
-    print('\n【步骤5/6】超参数调优 (XGBoost + LightGBM)')
+    print('\n【步骤5/7】超参数调优 (XGBoost + LightGBM)')
     print('-'*70)
-    xgb_model, xgb_result = trainer.tune_xgboost(X_selected, y)
-    lgb_model, lgb_result = trainer.tune_lightgbm(X_selected, y)
+    xgb_model, xgb_result, xgb_train_prob, xgb_test_prob = trainer.tune_xgboost(X_selected, y, split_data)
+    lgb_model, lgb_result, lgb_train_prob, lgb_test_prob = trainer.tune_lightgbm(X_selected, y, split_data)
+    
+    train_probs['XGBoost_tuned'] = xgb_train_prob
+    test_probs['XGBoost_tuned'] = xgb_test_prob
+    train_probs['LightGBM_tuned'] = lgb_train_prob
+    test_probs['LightGBM_tuned'] = lgb_test_prob
     
     all_results = {**baseline_results, 'XGBoost_tuned': xgb_result, 'LightGBM_tuned': lgb_result}
     
-    print('\n【步骤6/6】生成报告 & 保存模型')
+    print('\n【步骤6/7】Stacking集成模型')
+    print('-'*70)
+    X_train, X_test, y_train, y_test = split_data
+    stacking_model, stacking_result, _, _ = trainer.build_stacking_ensemble(
+        train_probs, test_probs, y_train, y_test
+    )
+    all_results['Stacking_Ensemble'] = stacking_result
+    
+    print('\n【步骤7/7】生成报告 & 保存模型')
     print('-'*70)
     trainer.generate_report(all_results)
     
     saved_items = [
         ('GradientBoosting', trainer.models.get('GradientBoosting'), baseline_results['GradientBoosting']),
         ('ExtraTrees', trainer.models.get('ExtraTrees'), baseline_results['ExtraTrees']),
+        ('RandomForest', trainer.models.get('RandomForest'), baseline_results['RandomForest']),
         ('LogisticRegression', trainer.models.get('LogisticRegression'), baseline_results['LogisticRegression']),
         ('XGBoost_tuned', xgb_model, xgb_result),
         ('LightGBM_tuned', lgb_model, lgb_result),
+        ('Stacking_Ensemble', stacking_model, stacking_result),
     ]
     
     saved_items = [item for item in saved_items if item[1] is not None]

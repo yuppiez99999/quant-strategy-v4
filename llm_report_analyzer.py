@@ -440,6 +440,168 @@ class LLMReportAnalyzer:
         }
 
 
+def generate_local_ml_analysis(ml_signal_result: Dict[str, Any], 
+                                positions_info: Dict[str, Any] = None) -> str:
+    """
+    生成本地ML模型分析报告段落，用于替代LLM大模型分析（当API Key不可用时）。
+    
+    输入格式（来自 run_ml_signal_scan 的返回结果）：
+        {
+            "model_info": {"best_model": "LightGBM_tuned", "accuracy": 0.5201, ...},
+            "signals": {"buy": [...], "sell": [...], "hold": [...]},
+            "scanned_count": 14
+        }
+    
+    Args:
+        ml_signal_result: ML信号扫描结果
+        positions_info: 可选的持仓信息 {"code": {"name": str, "price": float, "weight": float}}
+    
+    Returns:
+        格式化的Markdown分析文本
+    """
+    lines = []
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append("🧠 本地ML量化模型分析 (LightGBM)")
+    lines.append("=" * 80)
+    lines.append("")
+    
+    model_info = ml_signal_result.get('model_info', {})
+    signals = ml_signal_result.get('signals', {})
+    
+    # 模型概况
+    lines.append("📊 模型概况")
+    lines.append("-" * 60)
+    lines.append(f"  模型名称: {model_info.get('best_model', 'N/A')}")
+    lines.append(f"  准确率: {model_info.get('accuracy', 0):.2%}  |  "
+                 f"F1: {model_info.get('f1', 0):.4f}  |  "
+                 f"AUC: {model_info.get('auc', 0):.4f}")
+    lines.append(f"  扫描标的: {ml_signal_result.get('scanned_count', 0)} 只")
+    lines.append(f"  信号阈值: 上涨概率 > 55% 买入, < 45% 卖出, 其余持有")
+    lines.append("")
+    
+    # 信号分布
+    buy_signals = signals.get('buy', [])
+    sell_signals = signals.get('sell', [])
+    hold_signals = signals.get('hold', [])
+    
+    lines.append("📊 ML预测信号分布")
+    lines.append("-" * 60)
+    lines.append(f"  🟢 买入信号: {len(buy_signals)} 只")
+    lines.append(f"  🔴 卖出信号: {len(sell_signals)} 只")
+    lines.append(f"  🟡 持有观望: {len(hold_signals)} 只")
+    lines.append("")
+    
+    # 买入信号详情
+    if buy_signals:
+        lines.append("📊 买入信号详情")
+        lines.append("-" * 60)
+        for s in sorted(buy_signals, key=lambda x: x.get('probability', 0), reverse=True):
+            code = s.get('code', '?')
+            prob = s.get('probability', 0)
+            conf = s.get('confidence', 0)
+            name = _resolve_name(code, positions_info)
+            lines.append(f"  🟢 {code} {name:8s}  上涨概率 {prob:.1%}  置信度 {conf:.1%}")
+        lines.append("")
+    
+    # 卖出信号详情
+    if sell_signals:
+        lines.append("📊 卖出信号详情")
+        lines.append("-" * 60)
+        for s in sorted(sell_signals, key=lambda x: x.get('probability', 0)):
+            code = s.get('code', '?')
+            down_prob = 1 - s.get('probability', 0)
+            conf = s.get('confidence', 0)
+            name = _resolve_name(code, positions_info)
+            lines.append(f"  🔴 {code} {name:8s}  下跌概率 {down_prob:.1%}  置信度 {conf:.1%}")
+        lines.append("")
+    
+    # 综合判断
+    lines.append("📊 综合判断")
+    lines.append("-" * 60)
+    
+    buy_codes = [s['code'] for s in buy_signals]
+    sell_codes = [s['code'] for s in sell_signals]
+    
+    # 按行业归类
+    industry_map = {
+        '医药': ['600276', '603259', '688981', '300274'],
+        '高端制造/半导体': ['002371', '688041', '688017', '300308', '688981'],
+        '能源/资源': ['601088', '600219', '000408', '600989', '600089'],
+        '钢铁/材料': ['600019'],
+        '新能源/电池': ['300750'],
+        '工程机械': ['000425'],
+    }
+    
+    buy_industries = set()
+    sell_industries = set()
+    for ind, codes in industry_map.items():
+        for c in codes:
+            if c in buy_codes:
+                buy_industries.add(ind)
+            if c in sell_codes:
+                sell_industries.add(ind)
+    
+    if buy_industries:
+        lines.append(f"  模型看好的赛道: {', '.join(sorted(buy_industries))}")
+    if sell_industries:
+        lines.append(f"  模型谨慎的赛道: {', '.join(sorted(sell_industries))}")
+    
+    total = len(buy_signals) + len(sell_signals) + len(hold_signals)
+    buy_ratio = len(buy_signals) / total if total else 0
+    sell_ratio = len(sell_signals) / total if total else 0
+    
+    if buy_ratio > sell_ratio + 0.1:
+        bias = "偏多 — 模型对当前市场整体倾向乐观，多只标的出现买入信号。"
+    elif sell_ratio > buy_ratio + 0.1:
+        bias = "偏空 — 模型对当前市场整体偏谨慎，多只标的触发卖出信号。"
+    else:
+        bias = "中性 — 多空信号大致均衡，市场缺乏明确方向，建议等待更明确的信号。"
+    
+    lines.append(f"  市场研判: {bias}")
+    lines.append("")
+    lines.append(f"  ⚠️ 本分析由本地LightGBM量化模型生成，准确率约{model_info.get('accuracy', 0.5)*100:.0f}%，")
+    lines.append("  信号仅供参考，不构成投资建议。建议与基本面分析、康波周期研判结合使用。")
+    lines.append("")
+    
+    # 风险等级评估
+    lines.append("🎯 风险等级评估")
+    lines.append("-" * 60)
+    if len(sell_signals) >= 3:
+        risk = "🔴 高风险"
+        risk_text = "卖出信号集中，建议减仓观望"
+    elif len(sell_signals) >= 1:
+        risk = "🟡 中等风险"
+        risk_text = "部分标的面临下行压力，关注止盈止损"
+    else:
+        risk = "🟢 低风险"
+        risk_text = "无明确卖出信号，持仓标的整体健康"
+    lines.append(f"  {risk} — {risk_text}")
+    accuracy = model_info.get('accuracy', 0)
+    ml_confidence = min(accuracy * 1.2, 0.65)
+    lines.append(f"  模型置信度: {ml_confidence*100:.0f}% (基于ML历史准确率)")
+    
+    return '\n'.join(lines)
+
+
+def _resolve_name(code: str, positions_info: Dict[str, Any] = None) -> str:
+    """解析标的名称"""
+    if positions_info and code in positions_info:
+        return positions_info[code].get('name', code)
+    # 尝试从 names.py 查找
+    try:
+        import os, sys
+        _script_dir = os.path.dirname(os.path.abspath(__file__))
+        if _script_dir not in sys.path:
+            sys.path.insert(0, _script_dir)
+        from ui.components.names import STOCK_NAME_MAP
+        pure = code.split('.')[0] if '.' in code else code
+        return STOCK_NAME_MAP.get(pure, code)
+    except ImportError:
+        pass
+    return code
+
+
 def format_llm_analysis_for_report(analysis: Dict[str, Any]) -> str:
     """
     将LLM分析结果格式化为报告文本

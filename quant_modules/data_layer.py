@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 import sys
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 try:
@@ -178,17 +179,29 @@ class DataConnector:
 
 
 class DataConnectorManager:
-    """连接器管理器 - 支持优先级回退和自动降级"""
+    """连接器管理器 - 支持优先级回退和自动降级
+
+    v5.7 Phase 1 增强:
+    - 降级历史追踪 (_fallback_history)
+    - 主动健康探测 (check_health)
+    - 数据源层级标识 (data_source_label)
+    """
 
     def __init__(self):
         self.connectors = []
         self._active_connector = None
         self._fallback_mode = False
+        # v5.7 新增：降级事件追踪
+        self._fallback_history: List[Dict[str, Any]] = []
+        self._max_priority = 0  # 最高可用优先级
+        self._health_check_interval = 120  # 健康探测间隔（秒）
+        self._last_health_check = 0
 
     def register_connector(self, connector: DataConnector):
         """注册连接器"""
         self.connectors.append(connector)
         self.connectors.sort(key=lambda x: x.priority, reverse=True)
+        self._max_priority = max(c.priority for c in self.connectors) if self.connectors else 0
 
     def get_active_connector(self, force_reconnect: bool = False) -> Optional[DataConnector]:
         """获取当前活跃连接器"""
@@ -199,9 +212,16 @@ class DataConnectorManager:
             if connector.available:
                 try:
                     if connector.connect():
+                        prev_connector = self._active_connector
                         self._active_connector = connector
-                        self._fallback_mode = (connector.priority < max(c.priority for c in self.connectors))
+                        is_fallback = (connector.priority < self._max_priority)
+                        self._fallback_mode = is_fallback
                         logger.info(f"已激活数据源连接器: {connector.name} (优先级: {connector.priority})")
+
+                        # v5.7 新增：记录降级事件
+                        if prev_connector and connector is not prev_connector:
+                            self._record_fallback_event(prev_connector.name, connector.name)
+
                         if self._fallback_mode:
                             logger.warning(f"当前使用降级模式，主数据源不可用")
                         return connector
@@ -218,6 +238,7 @@ class DataConnectorManager:
                 return connector.get_quote(code)
             except Exception as e:
                 logger.warning(f"连接器 {connector.name} 获取行情失败: {e}")
+                self._record_fallback_event(connector.name, None)
                 self._active_connector = None
                 return self.get_quote(code)  # 尝试下一个连接器
 
@@ -231,10 +252,92 @@ class DataConnectorManager:
                 return connector.get_quotes_batch(codes)
             except Exception as e:
                 logger.warning(f"连接器 {connector.name} 批量获取失败: {e}")
+                self._record_fallback_event(connector.name, None)
                 self._active_connector = None
                 return self.get_quotes_batch(codes)  # 尝试下一个连接器
 
         return {}
+
+    # ── v5.7 Phase 1 新增 ──
+
+    def _record_fallback_event(self, from_connector: str, to_connector: str = None):
+        """记录降级事件"""
+        event = {
+            'timestamp': datetime.now().isoformat(),
+            'from': from_connector,
+            'to': to_connector or 'unknown',
+            'date': (datetime.now()).strftime('%Y-%m-%d'),
+        }
+        self._fallback_history.append(event)
+        # 保留最近100条
+        if len(self._fallback_history) > 100:
+            self._fallback_history = self._fallback_history[-100:]
+
+    def check_health(self) -> Dict[str, Any]:
+        """主动健康探测 - 检查所有连接器状态"""
+        now = time.time()
+        if now - self._last_health_check < self._health_check_interval:
+            return {
+                'status': 'cached',
+                'last_check_ago': int(now - self._last_health_check),
+                'active': self._active_connector.name if self._active_connector else None,
+            }
+
+        self._last_health_check = now
+        results = {}
+        for connector in self.connectors:
+            try:
+                alive = connector.available and connector.connect()
+                results[connector.name] = {
+                    'alive': alive,
+                    'priority': connector.priority,
+                    'connected': connector.connected,
+                }
+            except Exception:
+                results[connector.name] = {
+                    'alive': False,
+                    'priority': connector.priority,
+                    'connected': False,
+                }
+
+        return {
+            'status': 'checked',
+            'timestamp': datetime.now().isoformat(),
+            'active': self._active_connector.name if self._active_connector else None,
+            'connectors': results,
+        }
+
+    def get_data_source_label(self) -> str:
+        """获取当前数据源的层级标签（用于报告展示）
+
+        Returns:
+            'Wind (P0)' / 'iFinD (P1)' / 'AKShare (P2)' / '新浪 (P3)' / '本地缓存 (P4)' / 'None'
+        """
+        if self._active_connector:
+            labels = {
+                'Wind': '🟢 Wind (P0)',
+                'wind': '🟢 Wind (P0)',
+                'iFinD': '🟡 iFinD (P1)',
+                'ifind': '🟡 iFinD (P1)',
+                'AKShare': '🟠 AKShare (P2)',
+                'akshare': '🟠 AKShare (P2)',
+                'Sina': '🔴 新浪 (P3, 已降级)',
+                'sina': '🔴 新浪 (P3, 已降级)',
+                'LocalCache': '⚠️ 本地缓存 (P4, 已降级)',
+                'local_cache': '⚠️ 本地缓存 (P4, 已降级)',
+            }
+            return labels.get(self._active_connector.name,
+                            f"❓ {self._active_connector.name}")
+        return '❌ 无数据源'
+
+    def get_fallbacks_today(self) -> int:
+        """获取今日降级次数"""
+        today = datetime.now().strftime('%Y-%m-%d')
+        return sum(1 for f in self._fallback_history if f['date'] == today)
+
+    def get_recent_fallbacks(self, n: int = 5) -> List[Dict]:
+        """获取最近N次降级记录"""
+        return self._fallback_history[-n:]
 
     def list_connectors(self) -> List[Dict[str, Any]]:
         """列出所有连接器"""
@@ -249,10 +352,17 @@ class DataConnectorManager:
         ]
 
     def get_status(self) -> dict:
-        """获取连接器状态摘要"""
+        """获取连接器状态摘要（v5.7 增强版）"""
+        today = datetime.now().strftime('%Y-%m-%d')
         return {
             'active_connector': self._active_connector.name if self._active_connector else None,
+            'active_priority': self._active_connector.priority if self._active_connector else 0,
+            'data_source_label': self.get_data_source_label(),
             'fallback_mode': self._fallback_mode,
             'total_connectors': len(self.connectors),
-            'available_connectors': sum(1 for c in self.connectors if c.available)
+            'available_connectors': sum(1 for c in self.connectors if c.available),
+            # v5.7 新增
+            'total_fallbacks_today': self.get_fallbacks_today(),
+            'recent_fallbacks': self.get_recent_fallbacks(5),
+            'health_check': self.check_health(),
         }

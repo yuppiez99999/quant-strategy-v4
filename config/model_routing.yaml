@@ -1,0 +1,131 @@
+# ============================================================
+# 多模型路由配置 — v5.7 → v5.8 场景路由架构
+# 根据调研报告推荐的最优模型配置
+# ============================================================
+
+# 场景定义
+scenes:
+  intraday_decision:        # 盘中实时决策
+    description: "突发信号触发的快速决策，延迟敏感(<12秒)"
+    primary:
+      provider: zhipuai
+      model: glm-4.7-flash
+      temperature: 0.15     # 低温度，高确定性
+      max_tokens: 1500
+      timeout: 15
+    parallel_hedge:         # 并行对冲 (同时发出取先返回)
+      enabled: true
+      secondary:
+        provider: volcengine
+        model: doubao-speed-32k
+        temperature: 0.15
+        max_tokens: 1500
+        timeout: 15
+    fallback:
+      provider: deepseek
+      model: deepseek-v3.2
+      temperature: 0.2
+      max_tokens: 1500
+      timeout: 30
+    circuit_breaker:
+      max_consecutive_failures: 3
+      cooldown_seconds: 300  # 5分钟冷却
+
+  rebalancing_analysis:     # 日终再平衡分析
+    description: "组合层面深度分析，推理质量优先"
+    primary:
+      provider: deepseek
+      model: deepseek-v4-pro
+      temperature: 0.2
+      max_tokens: 4000
+      timeout: 60
+    cross_validation:        # 双模型交叉验证
+      enabled: true
+      secondary:
+        provider: volcengine
+        model: doubao-pro-32k
+        temperature: 0.2
+        max_tokens: 4000
+        timeout: 60
+    fallback:
+      provider: zhipuai
+      model: glm-5.2
+      temperature: 0.2
+      max_tokens: 4000
+      timeout: 60
+    circuit_breaker:
+      max_consecutive_failures: 2
+      cooldown_seconds: 600
+
+  macro_analysis:            # 宏观综合分析
+    description: "康波周期+十五五规划+社保基金 三大分析"
+    primary:
+      provider: deepseek
+      model: deepseek-v4-pro
+      temperature: 0.3
+      max_tokens: 5000
+      timeout: 90
+    cross_validation:
+      enabled: true
+      secondary:
+        provider: zhipuai
+        model: glm-5.2
+        temperature: 0.3
+        max_tokens: 5000
+        timeout: 90
+
+  report_generation:         # 报告生成
+    description: "日/周报生成，需要创意和结构化"
+    primary:
+      provider: volcengine
+      model: doubao-speed-32k
+      temperature: 0.5
+      max_tokens: 6000
+      timeout: 60
+    fallback:
+      provider: deepseek
+      model: deepseek-v4-pro
+      temperature: 0.5
+      max_tokens: 6000
+      timeout: 60
+
+  light_analysis:            # 轻量分析 (情感/分类)
+    description: "金融文本分类、情感分析等轻量任务"
+    primary:
+      provider: volcengine
+      model: doubao-speed-32k
+      temperature: 0.1
+      max_tokens: 500
+      timeout: 10
+
+# 模型提供商 API 配置
+providers:
+  deepseek:
+    name: DeepSeek
+    api_base: "https://api.deepseek.com/v1/chat/completions"
+    api_key_env: "DEEPSEEK_API_KEY"
+    
+  zhipuai:
+    name: 智谱AI (GLM)
+    api_base: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    api_key_env: "ZHIPUAI_API_KEY"
+    
+  volcengine:
+    name: 火山引擎 (豆包)
+    api_base: "https://ark.cn-beijing.volces.com/api/v3/responses"
+    api_key_env: "VOLCENGINE_API_KEY"
+
+# RAG 配置 (检索增强生成)
+rag:
+  enabled_scenes:
+    - rebalancing_analysis   # 再平衡时启用 (基本面+财报数据)
+    - macro_analysis         # 宏观分析时启用
+  disabled_scenes:
+    - intraday_decision      # 盘中技术面决策关闭 RAG (反而降低 19.7% 性能)
+
+# 全局设置
+global:
+  max_parallel_calls: 2      # 最大并行调用数
+  result_merge_strategy: "intersection_first"  # 交叉验证策略: intersection_first | conservative | ensemble
+  log_all_decisions: true    # 记录所有决策到审计日志
+  confidence_threshold: 0.6  # 最小置信度阈值

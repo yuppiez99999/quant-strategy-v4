@@ -31,7 +31,7 @@ class TradingEngine:
         self.commissions = {asset['code']: asset['commission'] for asset in self.assets}
     
     def initialize_account(self):
-        self.initial_capital = 1000000
+        self.initial_capital = 3000000
         self.cash = self.initial_capital
         self.positions = {}
         self.trade_history = []

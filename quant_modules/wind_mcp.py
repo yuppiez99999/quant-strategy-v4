@@ -48,7 +48,8 @@ except ImportError:
 
 def _wind_code(code: str) -> str:
     """A股/ETF代码 -> Wind标准格式"""
-    if code.startswith(('51', '58', '60')):
+    # 上海交易所: 主板60xxxx, 科创板688xxx, ETF 51xxxx/58xxxx
+    if code.startswith(('51', '58', '60', '68')):
         return f"{code}.SH"
     else:
         return f"{code}.SZ"
@@ -89,7 +90,8 @@ def _wind_mcp_call(server_type: str, tool_name: str, params: dict, timeout: int 
         result = subprocess.run(
             ['node', 'scripts/cli.mjs', 'call', server_type, tool_name,
              json.dumps(params, ensure_ascii=False)],
-            cwd=WIND_MCP_SKILL_DIR, capture_output=True, text=True, timeout=timeout, env=wind_env
+            cwd=WIND_MCP_SKILL_DIR, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=timeout, env=wind_env
         )
         if result.returncode != 0 or not result.stdout.strip():
             return None
@@ -125,10 +127,13 @@ def _wind_mcp_fetch_kline(code: str, begin_date: str, end_date: str) -> Optional
     else:
         server, tool = 'stock_data', 'get_stock_kline'
 
+    # Wind MCP 要求日期格式为 yyyyMMdd（无分隔符）
+    _bgn = begin_date.replace('-', '')
+    _end = end_date.replace('-', '')
     kdata = _wind_mcp_call(server, tool, {
         "windcode": windcode,
-        "begin_date": begin_date,
-        "end_date": end_date,
+        "begin_date": _bgn,
+        "end_date": _end,
         "period": "10",       # 日K
         "aftime": "0",        # 前复权
     })

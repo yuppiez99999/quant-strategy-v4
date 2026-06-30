@@ -69,6 +69,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.glm5_decision_engine import GLM5DecisionEngine, DecisionResult
 from utils.glm5_client import GLM5Client
+from utils.wind_data_provider import WindDataProvider, get_wind_provider
 
 logger = logging.getLogger(__name__)
 
@@ -113,22 +114,47 @@ class IntradayDecisionMonitor:
                  api_model: str = 'doubao-speed-32k',
                  check_interval: int = 300,  # 5分钟检查一次
                  min_confidence: float = 0.6,
-                 enable_notifications: bool = True):
+                 enable_notifications: bool = True,
+                 scene: str = "intraday_decision",  # v5.8: 决策场景
+                 use_wind_mcp: bool = True):         # v5.8: 使用 Wind MCP 数据
         """
         初始化监控器
         
         Args:
-            api_model: 使用的GLM模型（默认豆包Seed，金融分析最强）
+            api_model: 旧版兼容参数 (v5.8 后由 ModelRouter 场景路由替代)
             check_interval: 检查间隔(秒)
             min_confidence: 最小置信度阈值
             enable_notifications: 是否启用通知
+            scene: v5.8 决策场景 (intraday_decision / rebalancing_analysis)
+            use_wind_mcp: v5.8 使用 Wind MCP 动态数据 (替代硬编码指数)
         """
         self.base_dir = Path(__file__).parent.parent
         self.config_dir = self.base_dir / 'config'
         self.report_dir = self.base_dir / 'reports'
         
-        # 初始化GLM5决策引擎（使用豆包Seed）
-        self.engine = GLM5DecisionEngine(mode='api', api_model=api_model)
+        # v5.8: 场景路由初始化
+        self.scene = scene
+        self.use_wind_mcp = use_wind_mcp
+        
+        # v5.8: 初始化 Wind 数据供应器
+        if self.use_wind_mcp:
+            try:
+                self.wind_provider = get_wind_provider()
+                logger.info(f"✓ Wind 数据供应器: {'可用' if self.wind_provider._wind_available else '不可用(降级)'}")
+            except Exception as e:
+                logger.warning(f"Wind 数据供应器不可用: {e}")
+                self.wind_provider = None
+        else:
+            self.wind_provider = None
+        
+        # 初始化GLM5决策引擎 (v5.8: 内部已集成 ModelRouter 和 Wind 数据)
+        self.engine = GLM5DecisionEngine(
+            mode='api',
+            api_model=api_model,
+            default_scene=scene,
+            use_wind_mcp=use_wind_mcp,
+            use_fundamental_rag=(scene == "rebalancing_analysis"),
+        )
         
         # 配置参数
         self.check_interval = check_interval
@@ -145,7 +171,8 @@ class IntradayDecisionMonitor:
         self.total_value = 0.0
         self.cash = 0.0
         
-        logger.info(f"盘中决策监控器已初始化 - 模型: {api_model}, 检查间隔: {check_interval}秒")
+        scene_desc = "盘中实时决策 (并行对冲)" if scene == "intraday_decision" else "再平衡深度分析 (交叉验证)"
+        logger.info(f"盘中决策监控器已初始化 - 场景: {scene_desc}, 检查间隔: {check_interval}秒")
     
     def load_positions(self) -> bool:
         """
@@ -238,7 +265,7 @@ class IntradayDecisionMonitor:
     
     def build_market_data(self, prices: Dict[str, float]) -> Dict[str, Any]:
         """
-        构建市场数据
+        构建市场数据 (v5.8: Wind MCP 动态指数数据替代硬编码)
         
         Args:
             prices: 实时价格字典
@@ -246,23 +273,47 @@ class IntradayDecisionMonitor:
         Returns:
             市场数据结构
         """
+        now = datetime.now()
+        
+        # v5.8: 优先从 Wind MCP 获取指数数据
+        index_quotes = {}
+        if self.use_wind_mcp and self.wind_provider:
+            try:
+                index_quotes = self.wind_provider.get_index_quotes()
+                if index_quotes:
+                    logger.info(f"[Wind MCP] 获取到 {len(index_quotes)} 个指数行情")
+            except Exception as e:
+                logger.warning(f"[Wind MCP] 指数行情获取失败: {e}, 使用降级数据")
+        
+        # 构建指数行情
+        index_data = {}
+        if index_quotes:
+            for name, quote in index_quotes.items():
+                if quote.price > 0:
+                    index_data[name] = {
+                        "收盘": round(quote.price, 2),
+                        "涨跌幅": f"{quote.change_pct:+.2f}%",
+                        "数据源": quote.source,
+                    }
+        
+        # 如果 Wind MCP 失败，尝试从 Wind MCP 的直接调用获取
+        if not index_data:
+            index_data = self._fetch_index_fallback()
+        
         market_data = {
-            "日期": datetime.now().strftime('%Y-%m-%d'),
-            "时间": datetime.now().strftime('%H:%M:%S'),
-            "指数行情": {
-                "上证指数": {"收盘": 3950.12, "涨跌幅": "+0.85%"},
-                "深证成指": {"收盘": 13250.45, "涨跌幅": "+1.23%"},
-                "创业板指": {"收盘": 2680.33, "涨跌幅": "+1.56%"},
-            },
+            "日期": now.strftime('%Y-%m-%d'),
+            "时间": now.strftime('%H:%M:%S'),
+            "数据来源": "Wind MCP" if index_quotes else "降级数据源",
+            "指数行情": index_data,
             "资金流向": {
-                "北向资金": "净流入 +45亿",
-                "南向资金": "净流出 -12亿",
+                "数据来源": "待接入",
+                "说明": "北向/南向资金需专用API，当前标记为待接入",
             },
             "板块表现": {},
         }
         
-        # 计算板块表现
-        sector_performance = {}
+        # 计算板块表现 (基于实时价格)
+        sector_changes = {}
         for code, pos in self.positions.items():
             if code in prices:
                 current_price = prices[code]
@@ -270,15 +321,65 @@ class IntradayDecisionMonitor:
                 if avg_cost > 0:
                     change_pct = (current_price - avg_cost) / avg_cost * 100
                     category = pos.get('category', 'unknown')
-                    if category not in sector_performance:
-                        sector_performance[category] = []
-                    sector_performance[category].append(change_pct)
+                    if category not in sector_changes:
+                        sector_changes[category] = []
+                    sector_changes[category].append(change_pct)
         
-        # 计算各板块平均表现
-        for category, changes in sector_performance.items():
-            market_data["板块表现"][category] = sum(changes) / len(changes)
+        for category, changes in sector_changes.items():
+            if changes:
+                market_data["板块表现"][category] = f"{sum(changes) / len(changes):+.2f}%"
         
         return market_data
+    
+    def _fetch_index_fallback(self) -> Dict[str, Any]:
+        """
+        降级获取指数数据 (Wind MCP → sina → 硬编码兜底)
+        """
+        # 尝试从 sina API 获取
+        try:
+            import requests
+            session = requests.Session()
+            session.trust_env = False
+            
+            sina_indices = {
+                "上证指数": "s_sh000001",
+                "深证成指": "s_sz399001",
+                "创业板指": "s_sz399006",
+            }
+            
+            index_data = {}
+            for name, sina_code in sina_indices.items():
+                try:
+                    url = f"https://hq.sinajs.cn/list={sina_code}"
+                    resp = session.get(url, timeout=5, headers={"Referer": "https://finance.sina.com.cn"})
+                    resp.encoding = 'gbk'
+                    
+                    content = resp.text.split('=', 1)[-1].strip().strip('"')
+                    parts = content.split(',')
+                    if len(parts) >= 4 and parts[1]:
+                        price = float(parts[1])
+                        prev_close = float(parts[2]) if parts[2] else price
+                        change_pct = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+                        index_data[name] = {
+                            "收盘": round(price, 2),
+                            "涨跌幅": f"{change_pct:+.2f}%",
+                            "数据源": "sina API",
+                        }
+                except Exception:
+                    continue
+            
+            if index_data:
+                return index_data
+        except Exception:
+            pass
+        
+        # 最终兜底：标记为离线，不给虚假数据
+        logger.warning("所有指数数据源均不可用，返回空数据标记")
+        return {
+            "上证指数": {"收盘": 0, "涨跌幅": "数据不可用", "数据源": "离线"},
+            "深证成指": {"收盘": 0, "涨跌幅": "数据不可用", "数据源": "离线"},
+            "创业板指": {"收盘": 0, "涨跌幅": "数据不可用", "数据源": "离线"},
+        }
     
     def build_portfolio_data(self, prices: Dict[str, float]) -> Dict[str, Any]:
         """
@@ -359,12 +460,13 @@ class IntradayDecisionMonitor:
                 "min_cash_ratio": 0.05,        # 最低现金比例5%
             }
             
-            # 5. 生成决策
-            logger.info("正在调用GLM5生成交易决策...")
+            # 5. 生成决策 (v5.8: 场景路由)
+            logger.info(f"正在调用 AI 生成交易决策, 场景={self.scene}...")
             decision = self.engine.make_decisions(
                 market_data=market_data,
                 portfolio_data=portfolio_data,
                 risk_rules=risk_rules,
+                scene=self.scene,
             )
             
             self.last_decision_time = datetime.now()
@@ -588,20 +690,36 @@ def main():
         ]
     )
     
-    # 创建监控器（使用豆包Speed）
-    monitor = IntradayDecisionMonitor(
-        api_model='doubao-speed-32k',
-        check_interval=300,  # 5分钟
-        min_confidence=0.6,
-        enable_notifications=False,  # 暂时禁用通知
-    )
-    
-    # 运行一次或持续监控
     import argparse
-    parser = argparse.ArgumentParser(description='盘中实时决策监控')
+    parser = argparse.ArgumentParser(description='AI 盘中实时决策监控 (v5.8 场景路由)')
     parser.add_argument('--once', action='store_true', help='只执行一次')
     parser.add_argument('--interval', type=int, default=300, help='检查间隔(秒)')
+    parser.add_argument('--scene', type=str, default='intraday_decision',
+                       choices=['intraday_decision', 'rebalancing_analysis', 'macro_analysis'],
+                       help='决策场景 (默认: intraday_decision=盘中并行对冲)')
+    parser.add_argument('--no-wind', action='store_true', help='禁用 Wind MCP (使用降级数据源)')
     args = parser.parse_args()
+    
+    # 场景说明
+    scene_info = {
+        'intraday_decision': '盘中实时决策 (GLM-4.7-Flash + Qwen3.5 Flash 并行对冲)',
+        'rebalancing_analysis': '再平衡分析 (DeepSeek V4 Pro + Qwen-Plus 交叉验证+基本面RAG)',
+        'macro_analysis': '宏观综合分析 (DeepSeek V4 Pro + GLM-5.2 交叉验证)',
+    }
+    
+    print(f"\n🤖 AI 决策监控器 v5.8")
+    print(f"   场景: {scene_info.get(args.scene, args.scene)}")
+    print(f"   Wind MCP: {'启用' if not args.no_wind else '禁用'}")
+    
+    # 创建监控器
+    monitor = IntradayDecisionMonitor(
+        api_model='doubao-speed-32k',  # 向后兼容，实际由 router 决定
+        check_interval=args.interval,
+        min_confidence=0.6,
+        enable_notifications=False,
+        scene=args.scene,
+        use_wind_mcp=not args.no_wind,
+    )
     
     if args.once:
         monitor.run_once()

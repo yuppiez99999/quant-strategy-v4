@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Frontend (Nginx serving built React app)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - quantmatrix-network
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - WIND_API_KEY=${WIND_API_KEY:-}
+      - AKSHARE_CACHE_DIR=/app/data/cache
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+      - ../每日报告归档:/app/reports
+    networks:
+      - quantmatrix-network
+    restart: unless-stopped
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - quantmatrix-network
+    restart: unless-stopped
+
+  # PostgreSQL for user data and reports
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: quantmatrix
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-quantmatrix123}
+      POSTGRES_DB: quantmatrix_saas
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - quantmatrix-network
+    restart: unless-stopped
+
+networks:
+  quantmatrix-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:

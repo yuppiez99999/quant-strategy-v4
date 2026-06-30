@@ -1,8 +1,8 @@
 # ============================================================
-# 量化策略系统 v5.6 - .gitignore
+# 量化策略系统 v5.9 - .gitignore
 # 用于 GitHub 上传，隐藏所有敏感文件
-# 保留：核心代码、配置模板、文档
-# 排除：API 密钥、真实持仓、个人交易数据
+# 保留：核心代码、配置模板、文档、测试
+# 排除：API 密钥、真实持仓、个人交易数据、数据库文件
 # ============================================================
 
 # ── 1. 敏感凭证（绝对不能提交） ─────────────────────
@@ -49,6 +49,8 @@ trade_logs/
 daily_report.txt
 *.log
 *.log.*
+_live_output.txt
+training_summary_*.json
 
 # ── 4. Excel 持仓文件（包含实际仓位） ───────────────
 *.xlsx
@@ -94,6 +96,8 @@ temp/
 help_output.txt
 test_output.txt
 rebalance_output.txt
+data/                           # 所有缓存/数据库/派生数据
+*.db                           # SQLite 数据库文件
 
 # ── 7. 虚拟环境 ─────────────────────────────────────
 .venv/
@@ -167,6 +171,8 @@ _archive*/
 _archive_*/
 _archive_20260620/
 每日报告归档/
+mlflow_fallback/                # MLflow 本地追踪
+本地训练报告*.md                 # 本地训练报告
 
 # ── 17. 投资计划与个人记录（配置级） ──────────────────
 2026年交易计划*.md
@@ -220,7 +226,14 @@ Kronos/finetune_csv/data/
 !config/portfolio_template.yaml
 !.env.example
 !.env.template
+!saas-platform/.env.example
 !_test_ml.py
+
+# ── 26. SaaS Platform ────────────────────────────────
+saas-platform/node_modules/
+saas-platform/dist/
+saas-platform/.env
+saas-platform/.env.local
 
 # ============================================================
 # 使用说明：

@@ -147,7 +147,7 @@ class PortfolioOptimizationEngine:
         logger.info("自定义配置完成")
         return result
     
-    def backtest_portfolio(self, weights, name, initial_capital=1000000):
+    def backtest_portfolio(self, weights, name, initial_capital=3000000):
         """回测投资组合"""
         if not self.data:
             logger.warning("无数据可回测")

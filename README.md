@@ -1,8 +1,8 @@
-# 量化策略系统 v5.7
+# 量化策略系统 v5.9
 
 > **AI驱动的多策略量化投资组合管理系统**
 >
-> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 + TrendCast Pro AI预测 | 数据源: Wind MCP（优先）→ iFinD → 新浪 → AKShare → 本地缓存 | LLM: 本地 Ollama Qwen2.5:7B + 豆包 Speed
+> 策略: 风险平价 + 核心-卫星 + 动量择时 + ML涨跌预测 + TrendCast Pro AI预测 + 对冲再平衡联动 | 数据源: Wind MCP（优先）→ iFinD → AKShare → 新浪 → 本地缓存 | LLM: 豆包 Speed + GLM-5 + DeepSeek + Ollama Qwen2.5:7B
 
 ---
 
@@ -64,148 +64,148 @@ LOG_LEVEL=INFO
 
 ---
 
-## 二、主程序 CLI 模式（19种运行模式）
+## 二、主程序 CLI 模式（27种运行模式）
 
-主程序入口：`量化策略系统 v5.7.py`
+主程序入口：`量化策略系统 v5.9.py`
 
 ```bash
-python "量化策略系统 v5.7.py" --<模式> [选项]
+python "量化策略系统 v5.9.py" --<模式> [选项]
 ```
 
 ### 2.1 基础模式
 
 | 模式 | 说明 | 示例 |
 |------|------|------|
-| `--live` | 实时监控模式（盘中行情监控） | `python 量化策略系统 v5.7.py --live` |
-| `--report` | 报告生成模式 | `python 量化策略系统 v5.7.py --report` |
-| `--check` | 系统健康检查 | `python 量化策略系统 v5.7.py --check` |
-| `--risk` | 风险监控模式（止损止盈状态） | `python 量化策略系统 v5.7.py --risk` |
+| `--live` | 实时监控模式（盘中行情监控） | `python 量化策略系统 v5.9.py --live` |
+| `--report` | 报告生成模式 | `python 量化策略系统 v5.9.py --report` |
+| `--check` | 系统健康检查 | `python 量化策略系统 v5.9.py --check` |
+| `--risk` | 风险监控模式（止损止盈状态） | `python 量化策略系统 v5.9.py --risk` |
 
 ### 2.2 再平衡模式
 
 ```bash
 # 执行再平衡（Excel驱动）
-python "量化策略系统 v5.7.py" --rebalance
+python "量化策略系统 v5.9.py" --rebalance
 
 # 再平衡 + 同步止损止盈规则
-python "量化策略系统 v5.7.py" --rebalance --sync-sl
+python "量化策略系统 v5.9.py" --rebalance --sync-sl
 ```
 
 ### 2.3 三阶段工作流
 
 ```bash
 # 盘前计划
-python "量化策略系统 v5.7.py" --daily --phase premarket
+python "量化策略系统 v5.9.py" --daily --phase premarket
 
 # 盘中策略
-python "量化策略系统 v5.7.py" --daily --phase intraday
+python "量化策略系统 v5.9.py" --daily --phase intraday
 
 # 盘后报告
-python "量化策略系统 v5.7.py" --daily --phase postmarket
+python "量化策略系统 v5.9.py" --daily --phase postmarket
 
 # 完整三阶段（盘前 → 盘中 → 盘后）
-python "量化策略系统 v5.7.py" --daily --phase all
+python "量化策略系统 v5.9.py" --daily --phase all
 ```
 
 ### 2.4 ETF资金流向监控
 
 ```bash
-python "量化策略系统 v5.7.py" --etf-flow
+python "量化策略系统 v5.9.py" --etf-flow
 ```
 
 ### 2.5 投资组合优化
 
 ```bash
-python "量化策略系统 v5.7.py" --portfolio-opt
+python "量化策略系统 v5.9.py" --portfolio-opt
 ```
 
 ### 2.6 康波周期监控
 
 ```bash
-python "量化策略系统 v5.7.py" --kommo-monitor
+python "量化策略系统 v5.9.py" --kommo-monitor
 ```
 
 ### 2.7 大宗商品基本面
 
 ```bash
-python "量化策略系统 v5.7.py" --commodity-fund
+python "量化策略系统 v5.9.py" --commodity-fund
 ```
 
 ### 2.8 时序预测训练
 
 ```bash
-python "量化策略系统 v5.7.py" --train-model
+python "量化策略系统 v5.9.py" --train-model
 ```
 
 ### 2.9 康波周期+十五五交叠分析
 
 ```bash
-python "量化策略系统 v5.7.py" --kondratiev
+python "量化策略系统 v5.9.py" --kondratiev
 ```
 
 ### 2.10 十五五规划适配分析
 
 ```bash
-python "量化策略系统 v5.7.py" --fifteen-five
+python "量化策略系统 v5.9.py" --fifteen-five
 ```
 
 ### 2.11 社保基金ETF风格追踪
 
 ```bash
-python "量化策略系统 v5.7.py" --social-security
+python "量化策略系统 v5.9.py" --social-security
 ```
 
 ### 2.12 宏观综合分析（一键三大）
 
 ```bash
-python "量化策略系统 v5.7.py" --macro-analysis
+python "量化策略系统 v5.9.py" --macro-analysis
 ```
 
 ### 2.13 AI盘中实时决策
 
 ```bash
-python "量化策略系统 v5.7.py" --ai-decision
+python "量化策略系统 v5.9.py" --ai-decision
 ```
 
 ### 2.14 期货期权扫描
 
 ```bash
-python "量化策略系统 v5.7.py" --futures-options
+python "量化策略系统 v5.9.py" --futures-options
 ```
 
 ### 2.15 统一监控模式（一键启动所有模块）
 
 ```bash
-python "量化策略系统 v5.7.py" --unified-monitor
+python "量化策略系统 v5.9.py" --unified-monitor
 ```
 
-### 2.16 AI Hedge Fund（19位大师级AI分析师）
+### 2.16 AI Hedge Fund（20位大师级AI分析师）
 
 ```bash
 # 基础用法
-python "量化策略系统 v5.7.py" --ai-hedge
+python "量化策略系统 v5.9.py" --ai-hedge
 
 # 指定股票代码
-python "量化策略系统 v5.7.py" --ai-hedge --ticker 600519 000858
+python "量化策略系统 v5.9.py" --ai-hedge --ticker 600519 000858
 
 # 选择特定分析师
-python "量化策略系统 v5.7.py" --ai-hedge --analysts warren_buffett charlie_munger
+python "量化策略系统 v5.9.py" --ai-hedge --analysts warren_buffett charlie_munger
 
 # 显示分析推理过程
-python "量化策略系统 v5.7.py" --ai-hedge --show-reasoning
+python "量化策略系统 v5.9.py" --ai-hedge --show-reasoning
 ```
 
-### 2.17 ML模型预测信号 ⭐ NEW
+### 2.17 ML模型预测信号
 
 ```bash
 # 基础用法（默认阈值 55%）
-python "量化策略系统 v5.7.py" --ml-signal
+python "量化策略系统 v5.9.py" --ml-signal
 
 # 自定义信号阈值（提高置信度要求）
-python "量化策略系统 v5.7.py" --ml-signal --threshold 0.6
+python "量化策略系统 v5.9.py" --ml-signal --threshold 0.6
 
 # 保存报告到指定文件
-python "量化策略系统 v5.7.py" --ml-signal -o ML信号报告.md
+python "量化策略系统 v5.9.py" --ml-signal -o ML信号报告.md
 ```
 
 **输出示例**:
@@ -219,16 +219,59 @@ python "量化策略系统 v5.7.py" --ml-signal -o ML信号报告.md
 🟡 持有观望: 2 只
 ```
 
-### 2.18 回测模式
+### 2.18 ML增强预测 v2.0 ⭐ NEW v5.9
 
 ```bash
-python "量化策略系统 v5.7.py" --backtest
-
-# 指定时间范围
-python "量化策略系统 v5.7.py" --backtest --start-date 2025-01-01 --end-date 2026-06-26
+# 四维优化模型预测（XGB/LGB/RF/GB集成）
+python "量化策略系统 v5.9.py" --ml-enhanced
 ```
 
-### 2.19 通用选项
+### 2.19 ML增强训练 v2.0（四维优化） ⭐ NEW v5.9
+
+```bash
+# 标准增强训练
+python "量化策略系统 v5.9.py" --train-enhanced
+
+# T+5 中期预测训练
+python "量化策略系统 v5.9.py" --train-enhanced --horizon 5
+
+# T+10 + 贝叶斯超参数优化
+python "量化策略系统 v5.9.py" --train-enhanced --horizon 10 --optuna
+```
+
+### 2.20 对冲分析 ⭐ NEW v5.9
+
+```bash
+# AI增强对冲分析（多指数期货/期权）
+python "量化策略系统 v5.9.py" --hedge
+
+# 仅规则引擎对冲（禁用AI）
+python "量化策略系统 v5.9.py" --hedge --no-ai
+```
+
+### 2.21 对冲再平衡联动 ⭐ NEW v5.9
+
+```bash
+# 五阶段联动引擎（尾部保护模式，默认）
+python "量化策略系统 v5.9.py" --hedge-rebalance
+
+# 动态对冲模式
+python "量化策略系统 v5.9.py" --hedge-rebalance --mode=dynamic
+
+# 强制尾部保护模式
+python "量化策略系统 v5.9.py" --hedge-rebalance --mode=tail_only
+```
+
+### 2.22 回测模式
+
+```bash
+python "量化策略系统 v5.9.py" --backtest
+
+# 指定时间范围
+python "量化策略系统 v5.9.py" --backtest --start-date 2025-01-01 --end-date 2026-06-26
+```
+
+### 2.23 通用选项
 
 | 选项 | 说明 |
 |------|------|
@@ -236,8 +279,11 @@ python "量化策略系统 v5.7.py" --backtest --start-date 2025-01-01 --end-dat
 | `--no-ai` | 禁用AI分析模块 |
 | `--sync-sl` | 同步止损止盈规则（配合 --rebalance） |
 | `--threshold` | ML信号阈值（配合 --ml-signal，默认0.55） |
+| `--horizon` | 预测周期（配合 --train-enhanced） |
+| `--optuna` | 启用贝叶斯超参数优化 |
+| `--mode` | 对冲模式：tail_only / dynamic（配合 --hedge-rebalance） |
 
-### 2.20 每日自动化工作流（daily_runner）
+### 2.24 每日自动化工作流（daily_runner）
 
 `daily_runner.py` 是每日自动任务的主入口，由 Windows 计划任务触发或手动执行。
 
@@ -270,13 +316,13 @@ python daily_runner.py --no-trendcast
 |------|------|------|
 | 步骤1 | 数据更新 | 从 Wind MCP / iFinD / AKShare 下载最新行情 |
 | 步骤2 | 快速回测 | 验证当前策略参数有效性 |
-| 步骤2.5 | TrendCast AI预测 | 调用 TrendCast Pro API 获取14只核心持仓涨跌预测信号 ⭐ |
+| 步骤2.5 | TrendCast AI预测 | 调用 TrendCast Pro API 获取核心持仓涨跌预测信号 |
 | 步骤3 | 每日报告 | 生成含 AI 分析的完整 Markdown 日报 |
 | 步骤4 | 模拟交易（可选） | 启动盘中模拟交易 |
 
 **TrendCast Pro 集成详情**：
 - 默认开启（`enable_trendcast=True`），若 API 不可用则优雅降级跳过
-- 批量预测 14 只核心持仓标的，输出看涨/看跌/中立信号 + 置信度
+- 批量预测核心持仓标的，输出看涨/看跌/中立信号 + 置信度
 - 预测结果写入审计追踪（`logs/trendcast_audit/predictions.jsonl`）
 - 到期后自动回溯验证命中率，模型漂移检测告警
 - 信号通过 `quant_modules/prediction_bridge.py` 桥接到再平衡引擎
@@ -562,10 +608,10 @@ models/
 
 ```bash
 # 默认阈值 55%
-python "量化策略系统 v5.7.py" --ml-signal
+python "量化策略系统 v5.9.py" --ml-signal
 
 # 自定义阈值（提高置信度要求）
-python "量化策略系统 v5.7.py" --ml-signal --threshold 0.6
+python "量化策略系统 v5.9.py" --ml-signal --threshold 0.6
 ```
 
 **信号分类**:
@@ -643,15 +689,55 @@ print(f"卖出信号: {len(result['signals']['sell'])} 只")
 
 ---
 
+### 3.10 XGBoost 方向预测模型 ⭐ NEW
+
+**文件**: `model_train/xgboost_direction.py`
+
+**功能**:
+- 核心标的5日涨跌方向预测
+- AKShare数据源自动拉取（自动处理.SZ/.SH后缀）
+- 多模型批量训练（每只标的独立模型）
+- AUC评分评估，自动筛选优质模型
+
+**使用**:
+```bash
+# 训练所有标的
+python model_train/xgboost_direction.py
+
+# 指定标的
+python model_train/xgboost_direction.py --codes 600519 000858
+
+# 测试模式
+python model_train/xgboost_direction.py --test
+```
+
+**输出文件**:
+- `model_train/output/*.pkl` — 各标的模型文件
+- `xgb_signals_latest.csv` — 最新预测信号
+- `xgb_summary_*.json` — 训练汇总报告
+
+**模型性能示例**（2026-06-28训练）:
+| 标的 | AUC | 信号 |
+|------|-----|------|
+| 藏格矿业 | 0.63 | 🟢 看涨 |
+| 科伦药业 | 0.58 | 🟢 看涨 |
+| 徐工机械 | 0.53 | 🟢 看涨 |
+| 中国神华 | 0.52 | 🟢 看涨 |
+| ... | ... | ... |
+
+**优质模型标准**: AUC > 0.55
+
+---
+
 ## 四、目录结构
 
 ```
 11_量化策略/
-├── 量化策略系统 v5.7.py                # 主程序入口（19种CLI模式）⭐
-├── daily_runner.py                     # 每日自动化工作流 ⭐ NEW
-├── close_report_runner.py              # 收盘报告自动生成器 ⭐ NEW
-├── trendcast_client.py                 # TrendCast Pro API 客户端 ⭐ NEW
-├── trendcast_audit.py                  # TrendCast 预测审计追踪 ⭐ NEW
+├── 量化策略系统 v5.9.py                # 主程序入口（27种CLI模式）⭐
+├── daily_runner.py                     # 每日自动化工作流
+├── close_report_runner.py              # 收盘报告自动生成器
+├── trendcast_client.py                 # TrendCast Pro API 客户端
+├── trendcast_audit.py                  # TrendCast 预测审计追踪
 ├── ui/                                 # Streamlit多页面UI
 │   ├── app.py                          # Streamlit主入口
 │   ├── components/                     # UI组件
@@ -660,7 +746,7 @@ print(f"卖出信号: {len(result['signals']['sell'])} 只")
 │   │   ├── report_viewer.py            # 报告浏览/预览
 │   │   ├── sidebar.py                  # 公共侧边栏
 │   │   └── system_status.py            # 模块卡片/连接器状态
-│   └── pages/                          # 12个功能页面
+│   └── pages/                          # 14个功能页面
 │       ├── 01_🏠_系统概览.py
 │       ├── 02_📊_实时监控.py
 │       ├── 03_🔄_再平衡执行.py
@@ -672,68 +758,106 @@ print(f"卖出信号: {len(result['signals']['sell'])} 只")
 │       ├── 09_🏦_社保基金追踪.py
 │       ├── 10_🔬_宏观综合分析.py
 │       ├── 11_💎_大宗商品监控.py
-│       └── 12_📝_报告管理.py
+│       ├── 12_📝_报告管理.py
+│       ├── 13_🤖_AI决策与ML信号.py       # ⭐ v5.9 新增
+│       └── 14_🔗_对冲再平衡联动.py       # ⭐ v5.9 新增
 ├── utils/                              # 核心工具模块
 │   ├── kondratiev_cycle.py             # 康波周期分析 v2.0
 │   ├── five_year_plan.py               # 十五五规划适配
 │   ├── social_security_etf.py          # 社保基金ETF追踪
+│   ├── hedge_engine.py                 # ★ v5.9 多指数Beta加权对冲引擎
+│   ├── hedge_rebalance_integrator.py   # ★ v5.9 五阶段联动决策引擎
+│   ├── hedge_rebalance_backtest.py     # ★ v5.9 5策略对冲回测引擎 v2.0
+│   ├── signal_fusion.py                # ★ v5.9 多源信号融合引擎
+│   ├── enhanced_signal_fusion.py       # ★ v5.9 增强信号融合
+│   ├── ai_coordinator.py              # ★ v5.9 AI协调器
+│   ├── ml_enhanced_trainer.py          # ★ v5.9 ML增强训练 v2.0
+│   ├── ml_optuna_trainer.py            # ★ v5.9 Optuna贝叶斯优化训练
+│   ├── ml_predictor.py                 # ML模型预测模块
+│   ├── ml_labeling.py                  # ML标签工程
+│   ├── mlflow_tracker.py               # MLflow实验追踪
+│   ├── intraday_decision.py            # 盘中决策引擎
+│   ├── glm5_client.py                  # GLM-5 API客户端
+│   ├── glm5_decision_engine.py         # GLM-5决策引擎
+│   ├── kronos_predictor.py             # Kronos时序预测器
+│   ├── qwen_financial_predictor.py     # Qwen金融预测器
+│   ├── timesfm_predictor.py            # TimeSFM时序预测
+│   ├── timesfm_optimizer.py            # TimeSFM优化器
+│   ├── timesfm_trend_integration.py    # TimeSFM趋势集成
+│   ├── signal_audit.py                 # 信号审计追踪
+│   ├── rule_engine.py                  # 规则引擎
+│   ├── hybrid_fusion.py                # 混合融合策略
+│   ├── multi_model_router.py           # 多模型路由
+│   ├── fast_signal_processor.py        # 快速信号处理
 │   ├── logging_manager.py              # 统一日志
 │   ├── event_tracker.py                # 事件追踪
 │   ├── data_source_manager.py          # 多源自适应数据源
-│   ├── ml_predictor.py                 # ML模型预测模块 ⭐
-│   └── report_archiver.py              # 报告归档工具
+│   ├── config_hub.py                   # 配置中心
+│   ├── report_archiver.py              # 报告归档工具
+│   ├── wind_data_provider.py           # Wind数据提供器
+│   ├── env_loader.py                   # 环境变量加载
+│   ├── local_llm.py                    # 本地LLM封装
+│   ├── performance_monitor.py          # 性能监控
+│   └── console_encoding.py             # 控制台编码工具
 ├── quant_modules/                      # 核心量化模块
-│   ├── prediction_bridge.py            # TrendCast 信号权重桥接器 ⭐ NEW
-│   ├── ai_hedge_fund/                  # AI Hedge Fund（19位分析师）
+│   ├── prediction_bridge.py            # TrendCast 信号权重桥接器
+│   ├── ai_hedge_fund/                  # AI Hedge Fund（20位分析师）
 │   │   ├── agents/                     # 分析师Agent
 │   │   ├── llm/                        # LLM配置
 │   │   └── orchestrator.py             # 编排器
 │   ├── ai_rebalancing_engine.py        # AI量化再平衡引擎
 │   ├── decision_theories.py            # 四大理论引擎
 │   ├── futures_options_scanner.py      # 期货期权扫描器
+│   ├── futures_opportunity_analyzer.py # 期货机会分析
 │   ├── wind_mcp.py                     # Wind MCP CLI封装
 │   ├── data_layer.py                   # 缓存+连接器
-│   └── core.py                         # 配置/异常/成本计算
+│   ├── core.py                         # 配置/异常/成本计算
+│   ├── connectors.py                   # 数据源连接器
+│   ├── dynamic_position.py             # 动态仓位管理
+│   ├── cma_bridge.py                   # CMA桥接器
+│   ├── macro_decision_bridge.py        # 宏观决策桥接
+│   ├── macro_wind_adapter.py           # Wind宏观适配器
+│   └── trading_agents_bridge.py        # 交易代理桥接
 ├── engine/                             # 回测与策略引擎
 │   ├── data.py                         # 统一数据层
 │   ├── rebalance.py                    # 再平衡引擎
 │   ├── managers.py                     # 组合优化/康波/ETF管理器
 │   ├── etf_flow.py                     # ETF资金流监控
 │   └── social_security.py              # 社保基金风格追踪
-├── model_train/                        # ML模型训练模块 ⭐ NEW
+├── model_train/                        # ML模型训练模块
 │   ├── finbert_sentiment.py            # FinBERT 情感分析
 │   ├── xgboost_direction.py            # XGBoost 涨跌预测
 │   ├── risk_parity_backtest.py         # 风险平价回测
-│   └── signal_composer.py              # 多模型信号合成
-├── Kronos/                             # Kronos 时序预测框架 ⭐ NEW
+│   ├── signal_composer.py              # 多模型信号合成
+│   └── output/                         # 训练输出目录
+├── Kronos/                             # Kronos 时序预测框架
 │   ├── model/                          # 预训练模型
 │   ├── finetune/                       # 微调脚本
 │   ├── finetune_csv/                   # CSV数据微调
 │   ├── webui/                          # Web管理界面
 │   └── examples/                       # 示例代码
-├── signals/                            # 信号生成模块
-│   └── futures_options_signal.py       # 期货期权信号
 ├── config/                             # 配置文件
-│   ├── portfolio.yaml                  # 组合配置（14标的4板块）
+│   ├── portfolio.yaml                  # 组合配置（15标的4板块）
 │   ├── settings.yaml                   # 系统全局配置
 │   ├── positions.json                  # 实时持仓状态
 │   ├── stop_loss_rules_auto.yaml       # 止损止盈规则
 │   └── watchlist.yaml                  # 观察仓配置
-├── models/                             # ML模型输出目录 ⭐
+├── models/                             # ML模型输出目录
 │   └── *.pkl / *.json                  # 训练好的模型和元数据
 ├── data/                               # 数据缓存
 │   └── cache/                          # K线数据缓存
 ├── logs/                               # 运行日志
-│   ├── trendcast_audit/                # TrendCast 审计日志 ⭐ NEW
+│   ├── trendcast_audit/                # TrendCast 审计日志
 │   └── close_report_*.log              # 收盘报告日志
+├── trade_logs/                         # 交易日志
 ├── reports/                            # 生成的报告
 ├── scripts/                            # 脚本工具
 ├── auto_train.py                       # 基础版训练脚本
-├── auto_train_enhanced.py              # 增强版训练脚本 ⭐
-├── auto_train_optimized.py             # 优化版训练脚本 ⭐⭐
-├── ml_sell_executor.py                 # ML信号驱动卖出执行脚本 ⭐
-├── ml_sell_auto_execute.bat            # ML卖出自动执行批处理
-├── create_task.ps1                     # Windows任务计划配置脚本
+├── auto_train_enhanced.py              # 增强版训练脚本
+├── auto_train_optimized.py             # 优化版训练脚本
+├── ml_sell_executor.py                 # ML信号驱动卖出执行脚本
+├── generate_premarket_plan.py          # 盘前计划生成器
+├── auto_intraday_decision.py           # 盘中自动决策
 ├── backtest_engine.py                  # 回测引擎
 ├── run_ui.py                           # UI启动脚本
 ├── 启动UI面板.bat                      # UI启动批处理
@@ -801,13 +925,19 @@ ollama list
 在 `.env` 中修改：
 
 ```bash
-# 本地 Ollama（默认）
+# 本地 Ollama（免费）
 AI_HEDGE_PROVIDER=Ollama
 AI_HEDGE_MODEL=qwen2.5:7b
 
-# 云端豆包
+# 豆包 Speed（云端，优先推荐）
 AI_HEDGE_PROVIDER=Volcengine
 AI_HEDGE_MODEL=doubao-speed-32k
+
+# GLM-5（智谱）
+AI_HEDGE_MODEL=glm-5-flash
+
+# DeepSeek
+AI_HEDGE_MODEL=deepseek-chat
 
 # OpenAI 兼容接口（vLLM / LM Studio 等）
 AI_HEDGE_PROVIDER=OpenAI
@@ -846,18 +976,18 @@ print(f"买入信号: {len(result['signals']['buy'])}")
 print(f"卖出信号: {len(result['signals']['sell'])}")
 ```
 
-### 6.2 AI Hedge Fund ⭐
+### 6.2 AI Hedge Fund
 
 **文件**: `quant_modules/ai_hedge_fund/orchestrator.py`
 
 **功能**:
-- 19位大师级AI分析师联合决策
+- 20位大师级AI分析师联合决策
 - 价值投资、成长投资、逆向投资等多策略
 - 基本面分析、技术分析、情绪分析
 - 风险评估与仓位建议
 - **支持本地 Ollama Qwen2.5 推理**（无需云端 API）
 
-**LLM 后端**: 本地 Ollama Qwen2.5:7B（默认）| 豆包 Speed | OpenAI 兼容接口
+**LLM 后端**: 豆包 Speed（优先）| GLM-5 | DeepSeek | Ollama Qwen2.5:7B
 
 **支持的分析师**:
 | 分析师 | 投资风格 |
@@ -878,7 +1008,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 
 **功能**:
 - 整合四大理论引擎信号
-- DeepSeek LLM智能决策
+- 多模型LLM智能决策（豆包/GLM-5/DeepSeek）
 - 动态仓位计算
 - 止损规则（按类别差异化）
 - 信号聚合与置信度评估
@@ -892,9 +1022,53 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 | 第一性原理 | 基本面 → 内在价值 → 安全边际 | 价值信号 |
 | 巴菲特芒格 | 护城河 → 长期持有 → 复利增长 | 持有信号 |
 
-### 6.5 期货期权信号系统
+### 6.5 对冲再平衡联动引擎 ⭐ NEW v5.9
 
-**文件**: `signals/futures_options_signal.py`
+**文件**: `utils/hedge_engine.py` + `utils/hedge_rebalance_integrator.py` + `utils/hedge_rebalance_backtest.py`
+
+**功能**:
+- **多指数Beta加权对冲**: IC/IM/IF三大股指期货按组合Beta比例对冲
+- **成本过滤机制**: 对冲成本超过阈值自动过滤，避免无效对冲
+- **尾部保护模式**（默认）: 只在下行风险极端时触发对冲
+- **动态对冲模式**: 根据市场波动率实时调整对冲比率
+- **五阶段联动决策**: 组合诊断 → 对冲需求计算 → 再平衡优化 → 成本过滤 → 联合执行
+- **5策略回测对比**: 2021-2026历史数据验证，S5动态再平衡+尾部对冲为最优策略
+
+**使用**:
+```bash
+# 对冲分析（AI增强）
+python "量化策略系统 v5.9.py" --hedge
+
+# 对冲+再平衡联动（尾部保护模式，默认）
+python "量化策略系统 v5.9.py" --hedge-rebalance
+
+# 动态对冲模式
+python "量化策略系统 v5.9.py" --hedge-rebalance --mode=dynamic
+```
+
+### 6.6 信号融合引擎 ⭐ NEW v5.9
+
+**文件**: `utils/signal_fusion.py` + `utils/enhanced_signal_fusion.py`
+
+**功能**:
+- 多源信号加权融合：ML预测 + AI Hedge Fund + GLM-5 + 康波周期
+- 增强信号融合：动态权重分配 + 置信度校准
+- 信号审计追踪：预测→验证→反馈闭环
+- 混合融合策略：规则引擎 + ML + AI三路并行
+
+### 6.7 AI协调器 ⭐ NEW v5.9
+
+**文件**: `utils/ai_coordinator.py`
+
+**功能**:
+- 任务路由：自动分发分析任务到最优LLM后端
+- 成本管控：API调用计数 + 预算控制
+- 冲突检测：多源信号不一致时触发人工审核
+- 决策审计：完整决策链路追溯
+
+### 6.8 期货期权信号系统
+
+**文件**: `quant_modules/futures_options_scanner.py` + `quant_modules/futures_opportunity_analyzer.py`
 
 **功能**:
 - 宏观经济量化分析
@@ -902,17 +1076,17 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 - 期权信号生成（沪深300/上证50等ETF期权）
 - AI决策引擎（置信度评估/仓位计算/风险管理）
 
-### 6.6 TrendCast Pro AI 预测信号系统 ⭐ NEW
+### 6.9 TrendCast Pro AI 预测信号系统
 
 **文件**: `trendcast_client.py` + `trendcast_audit.py` + `quant_modules/prediction_bridge.py`
 
 **功能**:
 - 对接 TrendCast Pro 金融预测 API（`22_auto_金融市场预测模型/`）
-- 批量预测 14 只核心持仓标的的涨跌方向 + 置信度
+- 批量预测核心持仓标的的涨跌方向 + 置信度
 - 多周期共识信号（短期/中期/长期）
 - 审计追踪系统：每条预测写入 JSONL 日志，到期后自动回溯验证命中率
 - 模型漂移检测：近30天命中率 vs 整体命中率，偏差超过10%告警
-- 信号权重桥接器：将预测信号直接注入再平衡引擎（看涨+高置信度→增持，看跌+高置信度→减持）
+- 信号权重桥接器：将预测信号直接注入再平衡引擎
 - API 不可用时优雅降级，不影响其他流程
 
 **使用**:
@@ -921,7 +1095,7 @@ print(f"卖出信号: {len(result['signals']['sell'])}")
 cd "22_auto_金融市场预测模型"
 python main.py serve
 
-# 2. 运行每日流程（默认已开启，无需 --trendcast）
+# 2. 运行每日流程（默认已开启）
 cd "../11_量化策略"
 python daily_runner.py
 
@@ -929,23 +1103,18 @@ python daily_runner.py
 python daily_runner.py --no-trendcast
 ```
 
-**信号逻辑**:
-| 信号 | 条件 | 权重调整 |
-|------|------|----------|
-| 看涨 + 高置信度 | 上涨概率 > 60% | 权重 × (1 + 信号倍数) |
-| 看跌 + 高置信度 | 下跌概率 > 60% | 权重减少 |
-| 中立 / 低置信度 | 概率 ≤ 60% | 维持原权重 |
-
-### 6.6 盘中决策系统 ⭐
+### 6.10 盘中决策系统
 
 **文件**: `auto_intraday_decision.py` + `utils/intraday_decision.py`
 
 **功能**:
 - 交易时段定时调度（09:35, 10:35, 11:25, 13:05, 14:05, 14:50）
-- 实时持仓数据获取
-- GLM-5 AI 驱动交易决策生成
+- 实时持仓数据获取（新浪财经API）
+- **GLM-5 AI 驱动交易决策生成**（豆包Speed）
 - 风险预警实时监控
 - 自动生成决策报告
+- **ML模型预测信号集成**（LightGBM/XGBoost）
+- **v5.9**: 并行对冲信号 + Wind MCP实时数据
 
 **决策时间点**:
 | 时间 | 说明 |
@@ -957,32 +1126,7 @@ python daily_runner.py --no-trendcast
 | 14:05 | 下午盘中 |
 | 14:50 | 收盘前10分钟 |
 
-**LLM 配置**:
-- 决策引擎: `GLM5DecisionEngine`
-- API 模式: `doubao-speed-32k` (豆包Speed)
-- 检查间隔: 5分钟
-- 最小置信度: 0.6
-
-**使用**:
-```bash
-# 启动定时调度（持续运行）
-python auto_intraday_decision.py
-
-# 只执行一次
-python auto_intraday_decision.py --once
-
-# 测试模式（不调用API）
-python auto_intraday_decision.py --test
-```
-
-**核心类**:
-| 类名 | 功能 |
-|------|------|
-| `IntradayDecisionMonitor` | 盘中决策监控器 |
-| `GLM5DecisionEngine` | GLM-5 决策引擎 |
-| `GLM5Client` | GLM-5 API 客户端 |
-
-### 6.7 数据获取（优先级链）
+### 6.11 数据获取（优先级链）
 
 | 优先级 | 数据源 | 覆盖 | 说明 |
 |--------|--------|------|------|
@@ -990,22 +1134,21 @@ python auto_intraday_decision.py --test
 | P1 | iFinD MCP | 95% | 强制回退 |
 | P2 | AKShare | 80% | 免费数据源 |
 | P3 | 新浪财经 | 70% | 免费HTTP接口 |
-| P4 | yfinance | 60% | 国际品种 |
-| P5 | 本地缓存 | - | 最近成功数据 |
-| P6 | 兜底价格 | - | 确保永不崩溃 |
+| P4 | 本地缓存 | - | 最近成功数据 |
+| P5 | 兜底价格 | - | 确保永不崩溃 |
 
 ---
 
 ## 七、持仓配置
 
-### 7.1 权益组合（14标的 + 现金）
+### 7.1 权益组合（15标的）
 
-| 板块 | 标的数 | 权重 | 标的示例 |
-|------|--------|------|----------|
-| 高端制造(含算力) | 6 | 45% | 中际旭创/海光信息/北方华创/中芯国际/宁德时代/徐工机械 |
+| 板块 | 标的数 | 权重 | 标的 |
+|------|--------|------|------|
+| 高端制造(含算力) | 6 | 40% | 中际旭创/海光信息/北方华创/中芯国际/宁德时代/徐工机械 |
 | 顺周期 | 3 | 20% | 中国神华/南山铝业/宝钢股份 |
-| 资源 | 2 | 20% | 华安黄金ETF/藏格矿业 |
-| 防御 | 3 | 15% | 恒瑞医药/药明康德/科伦药业 |
+| 资源 | 2 | 20% | 华安黄金ETF/盐湖股份 |
+| 防御 | 4 | 20% | 长江电力/恒瑞医药/药明康德/科伦药业 |
 
 ### 7.2 止损规则
 
@@ -1039,7 +1182,7 @@ python run_ui.py
 - Local: http://localhost:8501
 - Network: http://192.168.0.105:8501
 
-### 8.3 功能页面
+### 8.3 功能页面（14页）
 
 | 页面 | 功能 |
 |------|------|
@@ -1047,7 +1190,7 @@ python run_ui.py
 | 实时监控 | 持仓饼图 + 权重偏差 + 净值曲线 + 标的搜索 |
 | 再平衡执行 | 5 Excel表驱动 - 买卖计划 + 止损止盈 |
 | 投资组合优化 | 5策略对比(等权/风险平价/风险配比/因子/自定义) |
-| 风险监控 | 止损止盈状态(🔴🟡🟢) + 风险权重分布 |
+| 风险监控 | 止损止盈状态 + 风险权重分布 |
 | ETF资金流向 | 24ETF监控 + 国家队信号 + 风格轮动 |
 | 康波周期分析 | 周期阶段 + 行业配置 + 商品信号 |
 | 十五五规划 | 7大战略方向 + 持仓适配评级 + 权重调整 |
@@ -1055,6 +1198,8 @@ python run_ui.py
 | 宏观综合分析 | 一键三大分析(康波+十五五+社保ETF) |
 | 大宗商品监控 | 商品价格/趋势/预警 + 宏观指标 |
 | 报告管理 | 浏览/搜索/预览/下载历史报告 |
+| AI决策与ML信号 ⭐ v5.9 | AI Hedge Fund + GLM-5 + ML信号汇总 |
+| 对冲再平衡联动 ⭐ v5.9 | 五阶段联合决策引擎 |
 
 ### 8.4 暗色主题
 
@@ -1073,7 +1218,10 @@ textColor = "#e6edf3"
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
-| v5.7 | 2026-06-27 | **TrendCast Pro AI预测信号系统完整集成** ⭐、每日自动化工作流(daily_runner)、收盘报告自动生成器、Kronos时序预测框架、model_train训练模块 |
+| v5.9 | 2026-06-30 | **对冲再平衡联动引擎** ⭐、多指数Beta加权对冲、五阶段联动决策、信号融合引擎、AI协调器、ML增强训练v2.0（四维优化+T+5/T+10+Optuna）、27种CLI模式、14页面UI、15标的4板块配置 |
+| v5.8 | 2026-06-29 | 代码优化与性能提升、ML信号重复计算消除、函数定义顺序规范、裸except pass修复、共享辅助函数抽取、版本号统一 |
+| v5.7 | 2026-06-27 | TrendCast Pro AI预测信号系统完整集成、每日自动化工作流(daily_runner)、收盘报告自动生成器、Kronos时序预测框架、model_train训练模块 |
+| v5.7.1 | 2026-06-29 | XGBoost方向预测模型上线、14标的5日涨跌预测、AI Hedge Fund 19位分析师增强、盘中决策系统完善 |
 | v5.6 | 2026-06-26 | ML模型预测信号系统、AI Hedge Fund、本地Ollama Qwen2.5部署 |
 | v5.5 | 2026-06-21 | AI量化再平衡引擎、四大理论引擎、期货期权扫描器 |
 | v5.2 | 2026-06-18 | DeepSeek V4 Pro LLM决策引擎接入 |
