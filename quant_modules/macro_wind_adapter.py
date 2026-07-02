@@ -34,7 +34,11 @@ logger = logging.getLogger('macro_wind_adapter')
 # ============================================================
 # Wind MCP 配置
 # ============================================================
-WIND_MCP_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
+try:
+    from utils.paths import get_wind_skill_dir
+    WIND_MCP_SKILL_DIR = get_wind_skill_dir()
+except ImportError:
+    WIND_MCP_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
 _BASE_DIR = _QUANT_DIR
 
 

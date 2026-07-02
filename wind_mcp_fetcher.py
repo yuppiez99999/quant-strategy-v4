@@ -39,7 +39,11 @@ from typing import Dict, List, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ---- 配置 ----
-WIND_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
+try:
+    from utils.paths import get_wind_skill_dir
+    WIND_SKILL_DIR = get_wind_skill_dir()
+except ImportError:
+    WIND_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
 WIND_CLI = os.path.join(WIND_SKILL_DIR, 'scripts', 'cli.mjs')
 WIND_API_KEY = os.environ.get('WIND_API_KEY', '')
 WIND_TIMEOUT = 20  # 单次调用超时(秒)
@@ -372,29 +376,49 @@ def wind_get_kline(
     return klines if klines else None
 
 
-def wind_check_connection() -> Dict[str, Any]:
+def wind_check_connection(max_attempts: int = 3) -> Dict[str, Any]:
     """
-    检查 Wind MCP 连接状态
+    检查 Wind MCP 连接状态 (v5.10: 带指数退避重试)
+    
+    v5.10 修复：单次 subprocess 调用失败直接判定断开 → 3次重试 + 退避
+    解决 "API Key 有效但无数据返回" 间歇性故障 (Wind MCP 偶尔响应慢/空数据)
     
     Returns:
-        {'connected': bool, 'api_key_set': bool, 'latency_ms': float, 'test_code': str}
+        {'connected': bool, 'api_key_set': bool, 'latency_ms': float,
+         'test_code': str, 'attempts': int}
     """
+    import random as _random
     result = {
         'api_key_set': bool(os.environ.get('WIND_API_KEY') or WIND_API_KEY),
         'connected': False,
         'latency_ms': -1,
         'test_code': '',
+        'attempts': 0,
     }
     
-    t0 = time.time()
-    # 用一个流动性好的ETF测试
-    test_resp = wind_get_quote('510300', is_fund=True)  # 沪深300ETF
-    elapsed = (time.time() - t0) * 1000
+    for attempt in range(1, max_attempts + 1):
+        t0 = time.time()
+        test_resp = wind_get_quote('510300', is_fund=True)
+        elapsed = (time.time() - t0) * 1000
+        
+        if test_resp is not None:
+            result['latency_ms'] = round(elapsed, 0)
+            result['connected'] = True
+            result['test_price'] = test_resp.get('price')
+            result['attempts'] = attempt
+            if attempt > 1:
+                logger.info("[WindMCP] 连接成功 (第%d次尝试, %.0fms)", attempt, elapsed)
+            return result
+        
+        if attempt < max_attempts:
+            delay = min(1.5 * (2.0 ** (attempt - 1)), 12.0)
+            delay = delay * (0.5 + _random.random())  # 抖动 ±50%
+            logger.debug("[WindMCP] 连接测试第%d/%d次失败，%.1fs后重试...",
+                        attempt, max_attempts, delay)
+            time.sleep(delay)
     
-    result['latency_ms'] = round(elapsed, 0)
-    result['connected'] = test_resp is not None
-    result['test_price'] = test_resp.get('price') if test_resp else None
-    
+    result['latency_ms'] = round((time.time() - t0) * 1000, 0) if 't0' in dir() else -1
+    result['attempts'] = max_attempts
     return result
 
 

@@ -33,13 +33,20 @@ class QwenServerManager:
 
     def __init__(
         self,
-        model_path: str = r"D:\models\Qwen\Qwen2.5-1.5B-Instruct\qwen2.5-1.5b-instruct-q4_k_m.gguf",
-        server_exe: str = r"D:\models\llama_cpp_bin\llama-server.exe",
+        model_path: str = None,
+        server_exe: str = None,
         port: int = 8100,
         host: str = "127.0.0.1",
         context_length: int = 2048,
         n_threads: int = 4,
     ):
+        try:
+            from utils.paths import get_qwen_model_path, get_llama_server_exe
+            model_path = model_path or get_qwen_model_path()
+            server_exe = server_exe or get_llama_server_exe()
+        except ImportError:
+            model_path = model_path or r"D:\models\Qwen\Qwen2.5-1.5B-Instruct\qwen2.5-1.5b-instruct-q4_k_m.gguf"
+            server_exe = server_exe or r"D:\models\llama_cpp_bin\llama-server.exe"
         self.model_path = model_path
         self.server_exe = server_exe
         self.port = port

@@ -64,11 +64,15 @@ rows.sort(key=lambda x: x['market_value'], reverse=True)
 # ── PDF 配置 ─────────────────────────────────────────────
 class PDFReport(FPDF):
     def __init__(self):
-        super().__init__(orientation='L', unit='mm', format='A3')  # 横向A3容纳宽表
-        # 注册中文字体 (SimHei 黑体)
-        font_path = r'C:\Windows\Fonts\simhei.ttf'
-        self.add_font('SimHei', '', font_path, uni=True)
-        self.add_font('SimHei', 'B', font_path, uni=True)
+        super().__init__(orientation='L', unit='mm', format='A3')
+        try:
+            from utils.paths import get_font_path
+            font_path = get_font_path('simhei')
+        except ImportError:
+            font_path = r'C:\Windows\Fonts\simhei.ttf'
+        if os.path.exists(font_path):
+            self.add_font('SimHei', '', font_path, uni=True)
+            self.add_font('SimHei', 'B', font_path, uni=True)
         self.set_auto_page_break(True, 12)
 
     def header(self):

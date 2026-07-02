@@ -342,16 +342,26 @@ def build_markdown(rows, summary, now: datetime) -> str:
 
 def pick_cn_font() -> tuple[str, str]:
     """返回 (注册名, ttf 路径)。按优先级搜索常见中文字体。"""
-    candidates = [
-        ("MSYH",   r"C:\Windows\Fonts\msyh.ttc"),
-        ("MSYH",   r"C:\Windows\Fonts\msyh.ttf"),
-        ("SIMHEI", r"C:\Windows\Fonts\simhei.ttf"),
-        ("SIMSUN", r"C:\Windows\Fonts\simsun.ttc"),
-    ]
+    try:
+        from utils.paths import get_font_path
+        msyh_path = get_font_path('msyh')
+        simhei_path = get_font_path('simhei')
+        simsun_path = get_font_path('simsun')
+        candidates = [
+            ("MSYH", msyh_path),
+            ("SIMHEI", simhei_path),
+            ("SIMSUN", simsun_path),
+        ]
+    except ImportError:
+        candidates = [
+            ("MSYH",   r"C:\Windows\Fonts\msyh.ttc"),
+            ("MSYH",   r"C:\Windows\Fonts\msyh.ttf"),
+            ("SIMHEI", r"C:\Windows\Fonts\simhei.ttf"),
+            ("SIMSUN", r"C:\Windows\Fonts\simsun.ttc"),
+        ]
     for name, path in candidates:
         if os.path.exists(path):
             return name, path
-    # fallback: reportlab 自带的 cid 中文字体（无物理文件也能用）
     return ("STSong-Light", "")
 
 

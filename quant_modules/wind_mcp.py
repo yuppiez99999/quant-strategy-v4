@@ -32,7 +32,11 @@ os.environ['NO_PROXY'] = _existing_no_proxy + _sep + _FINANCE_NO_PROXY_DOMAINS
 os.environ['no_proxy'] = os.environ['NO_PROXY']
 
 # Wind MCP 技能目录
-WIND_MCP_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
+try:
+    from utils.paths import get_wind_skill_dir
+    WIND_MCP_SKILL_DIR = get_wind_skill_dir()
+except ImportError:
+    WIND_MCP_SKILL_DIR = r'C:\Users\Administrator\.agents\skills\wind-mcp-skill'
 
 # 基础目录（供 .env 文件查找）
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

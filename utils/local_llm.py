@@ -32,9 +32,14 @@ class LocalLLMClient:
             temperature: 温度参数
             max_tokens: 最大生成 token 数
         """
+        try:
+            from utils.paths import get_qwen_model_path
+            default_model = get_qwen_model_path()
+        except ImportError:
+            default_model = r'D:\models\Qwen\Qwen2.5-1.5B-Instruct\qwen2.5-1.5b-instruct-q4_k_m.gguf'
         self.model_path = model_path or os.environ.get(
             'LOCAL_LLM_MODEL_PATH',
-            r'D:\models\Qwen\Qwen2.5-1.5B-Instruct\qwen2.5-1.5b-instruct-q4_k_m.gguf'
+            default_model
         )
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
